@@ -1,0 +1,15 @@
+# SectorSBITrader Dependencies
+
+# Data fetching
+yfinance>=0.2.36
+
+# Data manipulation
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Schwab API (when ready to trade)
+# schwab-py>=1.0.0
+
+# Optional: for visualization
+# matplotlib>=3.7.0
+# plotly>=5.15.0
