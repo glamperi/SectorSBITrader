@@ -452,24 +452,54 @@ class EnhancedBacktester:
             return None
         
         dates = sorted(list(all_dates))
-        print(f"\n🔄 Running {strategy_name} backtest over {len(dates)} days...")
-        print(f"   Date range: {dates[0].strftime('%Y-%m-%d')} to {dates[-1].strftime('%Y-%m-%d')}")
+        
+        # Filter to requested date range (start_date to end_date)
+        # But keep buffer for warmup calculations
+        start_dt = pd.Timestamp(self.start_date)
+        end_dt = pd.Timestamp(self.end_date)
+        
+        # Find the index where actual backtest should start (at or after start_date)
+        actual_start_idx = 0
+        for i, d in enumerate(dates):
+            if d.tz_localize(None) >= start_dt if d.tzinfo else d >= start_dt:
+                actual_start_idx = i
+                break
+        
+        # Ensure we have at least 30 days of warmup before start_date
+        warmup_start_idx = max(0, actual_start_idx - 30)
+        
+        print(f"\n🔄 Running {strategy_name} backtest over {len(dates) - actual_start_idx} trading days...")
+        print(f"   Full data range: {dates[0].strftime('%Y-%m-%d')} to {dates[-1].strftime('%Y-%m-%d')}")
+        print(f"   Backtest period: {self.start_date} to {self.end_date}")
         print(f"   Exit rules: Stock PSAR bearish OR RSI < 40 → Rotate/Exit")
         if self.trade_frequency > 1:
             print(f"   Trading frequency: every {self.trade_frequency} days")
         
         signals_found = 0
         exits_made = 0
+        trading_day_counter = 0  # Count trading days from actual start
         
         for i, date in enumerate(dates):
-            if i < 30:  # Need warmup period
+            # Skip dates before warmup period
+            if i < warmup_start_idx:
                 position_counts.append(0)
                 continue
             
+            # Skip dates before actual start (but after warmup)
+            date_tz_naive = date.tz_localize(None) if date.tzinfo else date
+            if date_tz_naive < start_dt:
+                position_counts.append(len(positions))
+                continue
+            
+            # Skip dates after end
+            if date_tz_naive > end_dt:
+                break
+            
             date_str = date.strftime("%Y-%m-%d")
             
-            # Check if this is a trading day (based on frequency)
-            is_trading_day = (i - 30) % self.trade_frequency == 0
+            # Check if this is a trading day (based on frequency from actual start)
+            is_trading_day = trading_day_counter % self.trade_frequency == 0
+            trading_day_counter += 1
             
             # Rank parents for weighted allocation
             if use_weighted_parents:
@@ -732,23 +762,47 @@ class EnhancedBacktester:
             return None
         
         dates = sorted(list(all_dates))
-        print(f"\n🔄 Running PARENT-BASED backtest over {len(dates)} days...")
-        print(f"   Date range: {dates[0].strftime('%Y-%m-%d')} to {dates[-1].strftime('%Y-%m-%d')}")
+        
+        # Filter to requested date range
+        start_dt = pd.Timestamp(self.start_date)
+        end_dt = pd.Timestamp(self.end_date)
+        
+        actual_start_idx = 0
+        for i, d in enumerate(dates):
+            if d.tz_localize(None) >= start_dt if d.tzinfo else d >= start_dt:
+                actual_start_idx = i
+                break
+        
+        warmup_start_idx = max(0, actual_start_idx - 30)
+        
+        print(f"\n🔄 Running PARENT-BASED backtest over {len(dates) - actual_start_idx} trading days...")
+        print(f"   Full data range: {dates[0].strftime('%Y-%m-%d')} to {dates[-1].strftime('%Y-%m-%d')}")
+        print(f"   Backtest period: {self.start_date} to {self.end_date}")
         if self.trade_frequency > 1:
             print(f"   Trading frequency: every {self.trade_frequency} days")
         
         signals_found = 0
         exits_made = 0
+        trading_day_counter = 0
         
         for i, date in enumerate(dates):
-            if i < 30:
+            if i < warmup_start_idx:
                 position_counts.append(0)
                 continue
+            
+            date_tz_naive = date.tz_localize(None) if date.tzinfo else date
+            if date_tz_naive < start_dt:
+                position_counts.append(len(positions))
+                continue
+            
+            if date_tz_naive > end_dt:
+                break
             
             date_str = date.strftime("%Y-%m-%d")
             
             # Check if this is a trading day (based on frequency)
-            is_trading_day = (i - 30) % self.trade_frequency == 0
+            is_trading_day = trading_day_counter % self.trade_frequency == 0
+            trading_day_counter += 1
             
             parent_status = {}
             for parent in self.parent_tickers:
@@ -1002,24 +1056,48 @@ class EnhancedBacktester:
             return None
         
         dates = sorted(list(all_dates))
-        print(f"\n🔄 Running REGIME-AWARE backtest over {len(dates)} days...")
-        print(f"   Date range: {dates[0].strftime('%Y-%m-%d')} to {dates[-1].strftime('%Y-%m-%d')}")
+        
+        # Filter to requested date range
+        start_dt = pd.Timestamp(self.start_date)
+        end_dt = pd.Timestamp(self.end_date)
+        
+        actual_start_idx = 0
+        for i, d in enumerate(dates):
+            if d.tz_localize(None) >= start_dt if d.tzinfo else d >= start_dt:
+                actual_start_idx = i
+                break
+        
+        warmup_start_idx = max(0, actual_start_idx - 30)
+        
+        print(f"\n🔄 Running REGIME-AWARE backtest over {len(dates) - actual_start_idx} trading days...")
+        print(f"   Full data range: {dates[0].strftime('%Y-%m-%d')} to {dates[-1].strftime('%Y-%m-%d')}")
+        print(f"   Backtest period: {self.start_date} to {self.end_date}")
         if self.trade_frequency > 1:
             print(f"   Trading frequency: every {self.trade_frequency} days")
         
         signals_found = 0
         exits_made = 0
         current_regime = None
+        trading_day_counter = 0
         
         for i, date in enumerate(dates):
-            if i < 30:
+            if i < warmup_start_idx:
                 position_counts.append(0)
                 continue
+            
+            date_tz_naive = date.tz_localize(None) if date.tzinfo else date
+            if date_tz_naive < start_dt:
+                position_counts.append(len(positions))
+                continue
+            
+            if date_tz_naive > end_dt:
+                break
             
             date_str = date.strftime("%Y-%m-%d")
             
             # Check if this is a trading day (based on frequency)
-            is_trading_day = (i - 30) % self.trade_frequency == 0
+            is_trading_day = trading_day_counter % self.trade_frequency == 0
+            trading_day_counter += 1
             
             # Detect regime for today
             regime = self.detect_regime(date)
