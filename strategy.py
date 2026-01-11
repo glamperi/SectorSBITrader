@@ -165,15 +165,13 @@ class AdaptiveX2SectorBot:
         self.load_state()
     
     def load_state(self):
-        """Load positions from file."""
-        if os.path.exists(self.state_file):
-            try:
-                with open(self.state_file, 'r') as f:
-                    state = json.load(f)
-                    for ticker, pos_data in state.get('positions', {}).items():
-                        self.positions[ticker] = Position(**pos_data)
-            except Exception as e:
-                print(f"Warning: Could not load state: {e}")
+        """
+        Position tracking disabled for 3-day rotation.
+        Each run generates fresh signals based on current technicals.
+        """
+        # Don't load positions - we're stateless now
+        # User tracks their own positions
+        pass
     
     def detect_regime(self) -> str:
         """

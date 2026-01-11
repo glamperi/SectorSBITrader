@@ -25,8 +25,8 @@ on:
         type: choice
         options:
           - signal-only
-          - live-dry-run
-          - live-execute
+          - dry-run
+          - live
       account_size:
         description: 'Account size'
         required: true
@@ -84,8 +84,8 @@ jobs:
             python main.py --mode $MODE
           fi
       
-      - name: Run SectorBot - Live Dry Run
-        if: ${{ github.event.inputs.trading_mode == 'live-dry-run' }}
+      - name: Run SectorBot - Dry Run
+        if: ${{ github.event.inputs.trading_mode == 'dry-run' }}
         env:
           SCHWAB_SECTORBOT_APP_KEY: ${{ secrets.SCHWAB_SECTORBOT_APP_KEY }}
           SCHWAB_SECTORBOT_APP_SECRET: ${{ secrets.SCHWAB_SECTORBOT_APP_SECRET }}
@@ -94,13 +94,13 @@ jobs:
           ACCOUNT_SIZE: ${{ github.event.inputs.account_size || 'small' }}
         run: |
           if [ "$ACCOUNT_SIZE" = "large" ]; then
-            python main.py --mode $MODE --live --large
+            python main.py --mode $MODE --dry-run --large
           else
-            python main.py --mode $MODE --live
+            python main.py --mode $MODE --dry-run
           fi
       
-      - name: Run SectorBot - Live Execute
-        if: ${{ github.event.inputs.trading_mode == 'live-execute' }}
+      - name: Run SectorBot - Live Trading
+        if: ${{ github.event.inputs.trading_mode == 'live' }}
         env:
           SCHWAB_SECTORBOT_APP_KEY: ${{ secrets.SCHWAB_SECTORBOT_APP_KEY }}
           SCHWAB_SECTORBOT_APP_SECRET: ${{ secrets.SCHWAB_SECTORBOT_APP_SECRET }}
@@ -109,9 +109,9 @@ jobs:
           ACCOUNT_SIZE: ${{ github.event.inputs.account_size || 'small' }}
         run: |
           if [ "$ACCOUNT_SIZE" = "large" ]; then
-            python main.py --mode $MODE --live --execute --auto-confirm --large
+            python main.py --mode $MODE --live --auto-confirm --large
           else
-            python main.py --mode $MODE --live --execute --auto-confirm
+            python main.py --mode $MODE --live --auto-confirm
           fi
       
       - name: Upload Signals
@@ -180,7 +180,7 @@ jobs:
           SCHWAB_SECTORBOT_APP_SECRET: ${{ secrets.SCHWAB_SECTORBOT_APP_SECRET }}
           SCHWAB_SECTORBOT_ACCOUNT_HASH: ${{ secrets.SCHWAB_SECTORBOT_ACCOUNT_HASH }}
         run: |
-          python main.py --mode rotation --live --execute --auto-confirm
+          python main.py --mode rotation --live --auto-confirm
       
       - name: Upload Signals
         uses: actions/upload-artifact@v4

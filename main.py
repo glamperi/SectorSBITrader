@@ -152,12 +152,10 @@ def run_signals(small_account: bool = True, strategy_mode: str = 'rotation',
                 rsi = f"{rsi:.0f}"
             print(f"   BUY  {s['ticker']:6s} ({s['parent']}) - SBI={sbi}, RSI={rsi}")
     
-    # HOLD signals
-    if signals['hold_positions']:
-        print(f"\n⏸️  HOLD ({len(signals['hold_positions'])}):")
-        for h in signals['hold_positions']:
-            ticker = h if isinstance(h, str) else h.get('ticker', h)
-            print(f"   HOLD {ticker}")
+    # No action needed
+    if not signals['exit_signals'] and not signals['rotation_signals'] and not signals['entry_signals']:
+        print(f"\n✅ NO ACTION NEEDED TODAY")
+        print(f"   All current positions remain valid (no exit/rotate signals)")
     
     # Summary
     print("\n" + "=" * 70)
@@ -167,7 +165,6 @@ def run_signals(small_account: bool = True, strategy_mode: str = 'rotation',
     print(f"   Exit Signals:      {len(signals['exit_signals'])}")
     print(f"   Rotation Signals:  {len(signals['rotation_signals'])}")
     print(f"   Entry Signals:     {len(signals['entry_signals'])}")
-    print(f"   Hold Positions:    {len(signals['hold_positions'])}")
     print(f"\n   Max Positions:     {bot.max_positions}")
     print(f"   Max Per Sector:    {bot.max_per_sector}")
     print("=" * 70)
@@ -237,10 +234,11 @@ def run_live_trading(small_account: bool = True, strategy_mode: str = 'rotation'
         dry_run: If True, simulate trades without executing
         auto_confirm: Skip confirmation prompts
     """
+    # Check for schwab-py
     try:
-        from executor import SchwabExecutor
+        from schwab import auth
     except ImportError:
-        print("❌ Schwab executor not available. Install schwab-py:")
+        print("❌ schwab-py not installed. Run:")
         print("   pip install schwab-py")
         return
     
@@ -252,7 +250,7 @@ def run_live_trading(small_account: bool = True, strategy_mode: str = 'rotation'
         save_report=True
     )
     
-    # Initialize Schwab executor
+    # Initialize Schwab client
     print("\n" + "=" * 70)
     print("🔄 SCHWAB LIVE TRADING")
     print("=" * 70)
@@ -262,54 +260,176 @@ def run_live_trading(small_account: bool = True, strategy_mode: str = 'rotation'
     else:
         print("🚨 LIVE MODE - Real trades will be executed!")
     
+    # Get credentials from environment
+    import os
+    app_key = os.environ.get('SCHWAB_SECTORBOT_APP_KEY')
+    app_secret = os.environ.get('SCHWAB_SECTORBOT_APP_SECRET')
+    account_hash = os.environ.get('SCHWAB_SECTORBOT_ACCOUNT_HASH')
+    token_path = 'sectorbot_token.json'
+    
+    if not app_key or not app_secret:
+        print("❌ Missing Schwab credentials. Set environment variables:")
+        print("   SCHWAB_SECTORBOT_APP_KEY")
+        print("   SCHWAB_SECTORBOT_APP_SECRET")
+        print("   SCHWAB_SECTORBOT_ACCOUNT_HASH (optional)")
+        return
+    
     try:
-        executor = SchwabExecutor()
+        # Try to load existing token
+        if os.path.exists(token_path):
+            client = auth.client_from_token_file(token_path, app_key, app_secret)
+            print("✅ Loaded Schwab token")
+        else:
+            # No token - start OAuth flow
+            print("🔐 No token found. Starting OAuth flow...")
+            print("   A browser will open for you to log into Schwab.")
+            print("")
+            
+            try:
+                client = auth.client_from_manual_flow(
+                    app_key,
+                    app_secret,
+                    'https://127.0.0.1',
+                    token_path=token_path
+                )
+                print("✅ Token saved to", token_path)
+            except Exception as oauth_error:
+                print(f"❌ OAuth failed: {oauth_error}")
+                print("")
+                print("Manual steps:")
+                print("1. Go to Schwab Developer Portal")
+                print("2. Make sure callback URL is: https://127.0.0.1")
+                print("3. Try again")
+                return
+        
+        # Get account hash if not provided
+        if not account_hash:
+            accounts = client.get_account_numbers()
+            if accounts.status_code == 200:
+                account_list = accounts.json()
+                if account_list:
+                    account_hash = account_list[0]['hashValue']
+                    print(f"✅ Using account: {account_hash[:8]}...")
+                else:
+                    print("❌ No accounts found")
+                    return
+            else:
+                print(f"❌ Could not get accounts: {accounts.status_code}")
+                return
         
         # Get current positions
-        positions = executor.get_positions()
+        account_resp = client.get_account(account_hash, fields=['positions'])
+        if account_resp.status_code != 200:
+            print(f"❌ Could not get account: {account_resp.status_code}")
+            return
+        
+        account_data = account_resp.json()
+        positions = {}
+        if 'securitiesAccount' in account_data:
+            for pos in account_data['securitiesAccount'].get('positions', []):
+                symbol = pos['instrument']['symbol']
+                qty = pos['longQuantity'] - pos.get('shortQuantity', 0)
+                if qty > 0:
+                    positions[symbol] = {
+                        'quantity': int(qty),
+                        'avg_cost': pos.get('averagePrice', 0),
+                        'market_value': pos.get('marketValue', 0)
+                    }
+        
         print(f"\n📊 Current positions: {len(positions)}")
+        for symbol, pos in positions.items():
+            print(f"   {symbol}: {pos['quantity']} shares @ ${pos['avg_cost']:.2f}")
+        
+        # Get account balances
+        balances = account_data['securitiesAccount'].get('currentBalances', {})
+        cash = balances.get('cashBalance', 0)
+        account_value = balances.get('liquidationValue', 0)
+        print(f"\n💰 Cash: ${cash:,.2f}")
+        print(f"💼 Account Value: ${account_value:,.2f}")
+        
+        # Calculate position size
+        position_value = (account_value * 0.95) / bot.max_positions
+        print(f"📐 Target per position: ${position_value:,.2f}")
         
         # Process exit signals
         if signals['exit_signals']:
-            print(f"\n🔴 Processing {len(signals['exit_signals'])} EXIT signals...")
+            print(f"\n🔴 EXIT SIGNALS ({len(signals['exit_signals'])}):")
             for sig in signals['exit_signals']:
                 ticker = sig['ticker']
                 if ticker in positions:
-                    if not dry_run:
-                        if auto_confirm or input(f"   SELL {ticker}? (y/n): ").lower() == 'y':
-                            executor.sell(ticker, positions[ticker]['quantity'])
-                            print(f"   ✅ Sold {ticker}")
-                    else:
-                        print(f"   [DRY RUN] Would sell {ticker}")
+                    qty = positions[ticker]['quantity']
+                    if dry_run:
+                        print(f"   [DRY RUN] Would sell {qty} {ticker}")
+                    elif auto_confirm or input(f"   SELL {qty} {ticker}? (y/n): ").lower() == 'y':
+                        # Place market sell order
+                        from schwab.orders.equities import equity_sell_market
+                        order = equity_sell_market(ticker, qty)
+                        resp = client.place_order(account_hash, order)
+                        if resp.status_code in [200, 201]:
+                            print(f"   ✅ Sold {qty} {ticker}")
+                        else:
+                            print(f"   ❌ Failed: {resp.status_code}")
+                else:
+                    print(f"   ⏭️  {ticker} - not in portfolio, skipping")
         
         # Process rotation signals
         if signals['rotation_signals']:
-            print(f"\n🔄 Processing {len(signals['rotation_signals'])} ROTATION signals...")
+            print(f"\n🔄 ROTATION SIGNALS ({len(signals['rotation_signals'])}):")
             for rot in signals['rotation_signals']:
                 exit_ticker = rot['exit']['ticker']
                 enter_ticker = rot['enter']['ticker']
-                if not dry_run:
-                    if auto_confirm or input(f"   ROTATE {exit_ticker} → {enter_ticker}? (y/n): ").lower() == 'y':
-                        if exit_ticker in positions:
-                            executor.sell(exit_ticker, positions[exit_ticker]['quantity'])
-                        executor.buy(enter_ticker)
-                        print(f"   ✅ Rotated {exit_ticker} → {enter_ticker}")
-                else:
+                
+                if dry_run:
                     print(f"   [DRY RUN] Would rotate {exit_ticker} → {enter_ticker}")
+                elif auto_confirm or input(f"   ROTATE {exit_ticker} → {enter_ticker}? (y/n): ").lower() == 'y':
+                    from schwab.orders.equities import equity_sell_market, equity_buy_market
+                    
+                    # Sell first
+                    if exit_ticker in positions:
+                        qty = positions[exit_ticker]['quantity']
+                        order = equity_sell_market(exit_ticker, qty)
+                        resp = client.place_order(account_hash, order)
+                        if resp.status_code in [200, 201]:
+                            print(f"   ✅ Sold {qty} {exit_ticker}")
+                        else:
+                            print(f"   ❌ Failed to sell: {resp.status_code}")
+                            continue
+                    
+                    # Buy new position
+                    price = bot.get_price(enter_ticker) or 100
+                    qty = max(1, int(position_value / price))
+                    order = equity_buy_market(enter_ticker, qty)
+                    resp = client.place_order(account_hash, order)
+                    if resp.status_code in [200, 201]:
+                        print(f"   ✅ Bought {qty} {enter_ticker}")
+                    else:
+                        print(f"   ❌ Failed to buy: {resp.status_code}")
         
         # Process entry signals
         if signals['entry_signals']:
-            available_slots = bot.max_positions - len(positions)
+            current_count = len(positions)
+            available_slots = bot.max_positions - current_count
+            
             if available_slots > 0:
-                print(f"\n🟢 Processing {min(len(signals['entry_signals']), available_slots)} ENTRY signals...")
+                print(f"\n🟢 ENTRY SIGNALS ({min(len(signals['entry_signals']), available_slots)} of {len(signals['entry_signals'])}):")
                 for sig in signals['entry_signals'][:available_slots]:
                     ticker = sig['ticker']
-                    if not dry_run:
-                        if auto_confirm or input(f"   BUY {ticker}? (y/n): ").lower() == 'y':
-                            executor.buy(ticker)
-                            print(f"   ✅ Bought {ticker}")
-                    else:
-                        print(f"   [DRY RUN] Would buy {ticker}")
+                    if ticker not in positions:
+                        price = bot.get_price(ticker) or 100
+                        qty = max(1, int(position_value / price))
+                        
+                        if dry_run:
+                            print(f"   [DRY RUN] Would buy {qty} {ticker} @ ~${price:.2f}")
+                        elif auto_confirm or input(f"   BUY {qty} {ticker}? (y/n): ").lower() == 'y':
+                            from schwab.orders.equities import equity_buy_market
+                            order = equity_buy_market(ticker, qty)
+                            resp = client.place_order(account_hash, order)
+                            if resp.status_code in [200, 201]:
+                                print(f"   ✅ Bought {qty} {ticker}")
+                            else:
+                                print(f"   ❌ Failed: {resp.status_code}")
+            else:
+                print(f"\n✋ No available slots ({current_count}/{bot.max_positions} positions)")
         
         print("\n" + "=" * 70)
         print("✅ Live trading complete")
@@ -317,7 +437,8 @@ def run_live_trading(small_account: bool = True, strategy_mode: str = 'rotation'
         
     except Exception as e:
         print(f"\n❌ Schwab error: {e}")
-        raise
+        import traceback
+        traceback.print_exc()
 
 
 def main():
@@ -358,12 +479,12 @@ def main():
     parser.add_argument(
         '--live',
         action='store_true',
-        help='Enable Schwab live trading (dry run by default)'
+        help='Execute LIVE trades via Schwab (real money!)'
     )
     parser.add_argument(
-        '--execute',
+        '--dry-run',
         action='store_true',
-        help='Actually execute trades (use with --live)'
+        help='Test Schwab connection without executing trades'
     )
     parser.add_argument(
         '--auto-confirm',
@@ -385,11 +506,11 @@ def main():
         return
     
     try:
-        if args.live:
+        if args.live or args.dry_run:
             run_live_trading(
                 small_account=not args.large,
                 strategy_mode=args.mode,
-                dry_run=not args.execute,
+                dry_run=args.dry_run,  # --dry-run = test, --live = real
                 auto_confirm=args.auto_confirm
             )
         else:
