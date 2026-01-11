@@ -455,6 +455,8 @@ class EnhancedBacktester:
         print(f"\n🔄 Running {strategy_name} backtest over {len(dates)} days...")
         print(f"   Date range: {dates[0].strftime('%Y-%m-%d')} to {dates[-1].strftime('%Y-%m-%d')}")
         print(f"   Exit rules: Stock PSAR bearish OR RSI < 40 → Rotate/Exit")
+        if self.trade_frequency > 1:
+            print(f"   Trading frequency: every {self.trade_frequency} days")
         
         signals_found = 0
         exits_made = 0
@@ -465,6 +467,9 @@ class EnhancedBacktester:
                 continue
             
             date_str = date.strftime("%Y-%m-%d")
+            
+            # Check if this is a trading day (based on frequency)
+            is_trading_day = (i - 30) % self.trade_frequency == 0
             
             # Rank parents for weighted allocation
             if use_weighted_parents:
@@ -568,8 +573,8 @@ class EnhancedBacktester:
                             del positions[ticker]
                             exits_made += 1
             
-            # ENTRY: Look for new signals
-            if len(positions) < self.max_positions:
+            # ENTRY: Look for new signals - only on trading days
+            if is_trading_day and len(positions) < self.max_positions:
                 # For weighted mode, prioritize stronger parents
                 parents_to_check = self.parent_tickers
                 if use_weighted_parents:
@@ -999,6 +1004,8 @@ class EnhancedBacktester:
         dates = sorted(list(all_dates))
         print(f"\n🔄 Running REGIME-AWARE backtest over {len(dates)} days...")
         print(f"   Date range: {dates[0].strftime('%Y-%m-%d')} to {dates[-1].strftime('%Y-%m-%d')}")
+        if self.trade_frequency > 1:
+            print(f"   Trading frequency: every {self.trade_frequency} days")
         
         signals_found = 0
         exits_made = 0
@@ -1010,6 +1017,9 @@ class EnhancedBacktester:
                 continue
             
             date_str = date.strftime("%Y-%m-%d")
+            
+            # Check if this is a trading day (based on frequency)
+            is_trading_day = (i - 30) % self.trade_frequency == 0
             
             # Detect regime for today
             regime = self.detect_regime(date)
@@ -1116,8 +1126,8 @@ class EnhancedBacktester:
                                     exits_made += 1
                         # In PARENT_BASED mode (bull regime), hold through weakness
                     
-                    # Look for new entries
-                    if len(positions) < self.max_positions and len(sector_positions) < self.max_per_sector:
+                    # Look for new entries - only on trading days
+                    if is_trading_day and len(positions) < self.max_positions and len(sector_positions) < self.max_per_sector:
                         candidates = []
                         for stock in stocks:
                             if stock in positions or stock not in self.price_data:
@@ -1345,7 +1355,8 @@ def main():
     parser.add_argument('--min-sbi', type=int, default=9, help='Min SBI for entry')
     parser.add_argument('--rotation-threshold', type=int, default=6, help='SBI threshold for rotation')
     parser.add_argument('--realistic', action='store_true', help='Use next-day open for entries (more realistic)')
-    parser.add_argument('--trade-freq', type=int, default=1, help='Trade every N days (1=daily, 3=every 3rd day)')
+    parser.add_argument('--trade-freq', type=int, default=1, 
+                        help='Trade every N days: 1=daily, 3=every 3 days, 5=weekly, 10=bi-weekly')
     
     args = parser.parse_args()
     

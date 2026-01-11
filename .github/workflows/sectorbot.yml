@@ -1,0 +1,190 @@
+name: SectorBot Trading
+
+on:
+  schedule:
+    # Run Monday, Wednesday, Friday at market open (9:30 AM ET)
+    # 3-day frequency based on backtest results
+    - cron: '30 14 * * 1,3,5'  # 9:30 AM ET (winter) - Mon, Wed, Fri
+    # - cron: '30 13 * * 1,3,5'  # 9:30 AM ET (summer/DST)
+    
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Strategy mode'
+        required: true
+        default: 'rotation'
+        type: choice
+        options:
+          - rotation
+          - parent_based
+          - weighted_rotation
+      trading_mode:
+        description: 'Trading mode'
+        required: true
+        default: 'signal-only'
+        type: choice
+        options:
+          - signal-only
+          - live-dry-run
+          - live-execute
+      account_size:
+        description: 'Account size'
+        required: true
+        default: 'small'
+        type: choice
+        options:
+          - small
+          - large
+
+env:
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  sectorbot:
+    name: Run SectorBot
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install schwab-py  # For live trading
+      
+      - name: Restore Schwab token
+        if: ${{ github.event.inputs.trading_mode != 'signal-only' }}
+        env:
+          SCHWAB_SECTORBOT_TOKEN: ${{ secrets.SCHWAB_SECTORBOT_TOKEN }}
+        run: |
+          if [ -n "$SCHWAB_SECTORBOT_TOKEN" ]; then
+            echo "$SCHWAB_SECTORBOT_TOKEN" > sectorbot_token.json
+            echo "✅ Restored Schwab token"
+          else
+            echo "⚠️ No token found in secrets"
+          fi
+      
+      - name: Run SectorBot - Signal Only
+        if: ${{ github.event.inputs.trading_mode == 'signal-only' || github.event.inputs.trading_mode == '' }}
+        env:
+          MODE: ${{ github.event.inputs.mode || 'rotation' }}
+          ACCOUNT_SIZE: ${{ github.event.inputs.account_size || 'small' }}
+        run: |
+          if [ "$ACCOUNT_SIZE" = "large" ]; then
+            python main.py --mode $MODE --large
+          else
+            python main.py --mode $MODE
+          fi
+      
+      - name: Run SectorBot - Live Dry Run
+        if: ${{ github.event.inputs.trading_mode == 'live-dry-run' }}
+        env:
+          SCHWAB_SECTORBOT_APP_KEY: ${{ secrets.SCHWAB_SECTORBOT_APP_KEY }}
+          SCHWAB_SECTORBOT_APP_SECRET: ${{ secrets.SCHWAB_SECTORBOT_APP_SECRET }}
+          SCHWAB_SECTORBOT_ACCOUNT_HASH: ${{ secrets.SCHWAB_SECTORBOT_ACCOUNT_HASH }}
+          MODE: ${{ github.event.inputs.mode || 'rotation' }}
+          ACCOUNT_SIZE: ${{ github.event.inputs.account_size || 'small' }}
+        run: |
+          if [ "$ACCOUNT_SIZE" = "large" ]; then
+            python main.py --mode $MODE --live --large
+          else
+            python main.py --mode $MODE --live
+          fi
+      
+      - name: Run SectorBot - Live Execute
+        if: ${{ github.event.inputs.trading_mode == 'live-execute' }}
+        env:
+          SCHWAB_SECTORBOT_APP_KEY: ${{ secrets.SCHWAB_SECTORBOT_APP_KEY }}
+          SCHWAB_SECTORBOT_APP_SECRET: ${{ secrets.SCHWAB_SECTORBOT_APP_SECRET }}
+          SCHWAB_SECTORBOT_ACCOUNT_HASH: ${{ secrets.SCHWAB_SECTORBOT_ACCOUNT_HASH }}
+          MODE: ${{ github.event.inputs.mode || 'rotation' }}
+          ACCOUNT_SIZE: ${{ github.event.inputs.account_size || 'small' }}
+        run: |
+          if [ "$ACCOUNT_SIZE" = "large" ]; then
+            python main.py --mode $MODE --live --execute --auto-confirm --large
+          else
+            python main.py --mode $MODE --live --execute --auto-confirm
+          fi
+      
+      - name: Upload Signals
+        uses: actions/upload-artifact@v4
+        with:
+          name: sectorbot-signals-${{ github.run_number }}
+          path: sectorbot_signals.json
+          retention-days: 30
+      
+      - name: Send Email Report
+        if: ${{ success() }}
+        uses: dawidd6/action-send-mail@v3
+        continue-on-error: true
+        with:
+          server_address: ${{ secrets.SMTP_SERVER }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "🤖 SectorBot - ${{ github.event.inputs.trading_mode || 'signals' }}"
+          to: ${{ secrets.EMAIL_TO }}
+          from: SectorBot <${{ secrets.SMTP_USERNAME }}>
+          body: |
+            SectorBot Report
+            =================
+            
+            Run: #${{ github.run_number }}
+            Mode: ${{ github.event.inputs.mode || 'rotation' }}
+            Trading: ${{ github.event.inputs.trading_mode || 'signal-only' }}
+            Account: ${{ github.event.inputs.account_size || 'small' }}
+            
+            View: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+  # Scheduled live trading (runs Mon/Wed/Fri)
+  scheduled-trading:
+    name: Scheduled Live Trading
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'schedule' }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install schwab-py
+      
+      - name: Restore Schwab token
+        env:
+          SCHWAB_SECTORBOT_TOKEN: ${{ secrets.SCHWAB_SECTORBOT_TOKEN }}
+        run: |
+          if [ -n "$SCHWAB_SECTORBOT_TOKEN" ]; then
+            echo "$SCHWAB_SECTORBOT_TOKEN" > sectorbot_token.json
+          fi
+      
+      - name: Execute Live Trades
+        env:
+          SCHWAB_SECTORBOT_APP_KEY: ${{ secrets.SCHWAB_SECTORBOT_APP_KEY }}
+          SCHWAB_SECTORBOT_APP_SECRET: ${{ secrets.SCHWAB_SECTORBOT_APP_SECRET }}
+          SCHWAB_SECTORBOT_ACCOUNT_HASH: ${{ secrets.SCHWAB_SECTORBOT_ACCOUNT_HASH }}
+        run: |
+          python main.py --mode rotation --live --execute --auto-confirm
+      
+      - name: Upload Signals
+        uses: actions/upload-artifact@v4
+        with:
+          name: sectorbot-live-${{ github.run_number }}
+          path: sectorbot_signals.json
+          retention-days: 30

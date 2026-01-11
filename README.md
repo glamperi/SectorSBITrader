@@ -1,146 +1,171 @@
 # AdaptiveX2 SectorBot
 
-**Parent PSAR + Child SBI Strategy for Reduced Trading**
+Sector rotation strategy that trades ETF sectors and their top stocks.
 
-## Overview
+## Performance (Backtested)
 
-This bot combines the best of two systems:
-1. **AdaptiveX2's PSAR signals** - Determine which sectors are active (parent signals)
-2. **Market-scanner's SBI** - Select the best stocks within active sectors (child signals)
+| Year | Market | Rotation (3-Day) | vs SPY |
+|------|--------|------------------|--------|
+| 2023-2025 | Bull | +83.5% | +40% better |
+| 2022 | Bear | +13.6% | +33% better |
+| 2018 | Choppy | +3.2% | +9% better |
 
-The key innovation is **parent-based exits only**, which dramatically reduces trading by:
-- NOT selling when a stock's SBI drops
-- NOT selling on small pullbacks
-- ONLY selling when the parent sector turns bearish
-
-## How It Works
-
-### Entry Logic
-```
-1. Check PARENT PSAR (sector ETF or crypto):
-   - BTC-USD bullish? → Crypto stocks eligible
-   - GLD bullish? → Gold miners eligible
-   - XLK bullish? → Tech stocks eligible
-
-2. Filter CHILD STOCKS by SBI:
-   - SBI = 10 → Buy with 2x weight (best entry)
-   - SBI = 9 → Buy with 1x weight (good entry)
-   - SBI < 9 → Don't enter
-```
-
-### Exit Logic (Key Difference!)
-```
-❌ DON'T exit when:
-   - Stock SBI drops to 6 (extended but trend intact)
-   - Stock pulls back 5%
-   - Stock goes sideways for a week
-
-✅ DO exit when:
-   - Parent sector PSAR turns bearish
-   - Example: BTC breaks below PSAR → Sell ALL crypto stocks
-```
-
-## Example Trade Flow
-
-```
-Nov 1:  BTC PSAR turns bullish
-        → Scan crypto stocks, find MSTR with SBI=10
-        → BUY MSTR
-
-Nov 15: MSTR SBI drops to 6 (price extended from PSAR)
-        → OLD STRATEGY: Sell (miss rest of rally)
-        → THIS STRATEGY: HOLD (BTC parent still bullish)
-
-Dec 1:  COIN appears with SBI=10 (fresh signal)
-        → BUY COIN (add to crypto allocation)
-
-Jan 5:  BTC PSAR turns bearish
-        → SELL ALL crypto stocks (MSTR, COIN, etc.)
-```
-
-## Why Fewer Trades = Better Performance
-
-1. **Transaction costs** - Each trade has commissions and slippage
-2. **Taxes** - Short-term gains taxed at higher rate
-3. **Whipsaws** - Frequent trading causes buy-high-sell-low cycles
-4. **Trend riding** - Biggest gains come from staying in winners
-
-## Installation
+## Quick Start
 
 ```bash
+# Install dependencies
 pip install -r requirements.txt
-```
 
-## Usage
-
-```bash
-# Full scan with report
+# Run signals (default: rotation mode)
 python main.py
 
-# JSON output only
-python main.py --json
+# Different modes
+python main.py --mode rotation          # Default - rotate weak stocks
+python main.py --mode parent_based      # Hold through weakness
+python main.py --mode weighted_rotation # Rotation + sector weighting
 
-# Don't save report file
-python main.py --no-save
+# Large account (20 positions instead of 10)
+python main.py --large
+
+# Schwab live trading
+python main.py --live                   # Dry run (no real trades)
+python main.py --live --execute         # REAL trades!
 ```
 
-## Configuration
+## Trading Workflow (3-Day Frequency)
 
-Edit `config.py` to customize:
-- Sector allocations (crypto, gold, tech, etc.)
-- SBI thresholds (default: 9-10 for entry)
-- Max positions per sector
-- Position size limits
+Based on backtesting, checking signals every 3 days gives optimal results:
 
-## SBI (Smart Buy Indicator) Explained
+**Monday, Wednesday, Friday:**
+1. Run `python main.py`
+2. Execute EXIT signals first
+3. Execute ROTATION signals (sell → buy)
+4. Execute ENTRY signals if you have open slots
 
-SBI measures entry quality on a 0-10 scale:
+## Strategy Rules (Rotation Mode)
 
-| SBI | Meaning | Action |
-|-----|---------|--------|
-| 10 | Perfect entry (fresh signal, low volatility) | Buy with 2x weight |
-| 9 | Excellent entry | Buy with 1x weight |
-| 8 | Good entry (Strong Buy threshold) | Optional buy |
-| 6-7 | Extended but trend intact | HOLD if owned |
-| 0-5 | Weak/broken | Don't enter |
-| 0 | Broken (crashed through PSAR) | Avoid! |
+**Entry:**
+- Parent ETF PSAR bullish
+- Stock SBI ≥ 9
+- Stock PSAR bullish
+- Stock RSI > 50
 
-### SBI Formula (varies by days since signal):
+**Exit:**
+- Parent ETF PSAR turns bearish → EXIT all stocks in sector
+- Stock PSAR bearish OR RSI < 40 → ROTATE to stronger stock
 
-- **Day 1:** 100% ATR score
-- **Day 2:** 80% ATR + 20% Slope
-- **Day 3:** 60% ATR + 40% Slope
-- **Days 4-5:** 40% ATR + 40% Slope + 20% ADX
-- **Days 6+:** 40% Slope + 30% ADX + 30% ATR
+**Position Limits (Small Account):**
+- Max 10 positions total
+- Max 2 per sector
+
+## GitHub Actions Setup
+
+### 1. Fork/Clone Repository
+
+### 2. Schwab API Setup (for automated trading)
+
+1. Go to [Schwab Developer Portal](https://developer.schwab.com)
+2. Create an app and get your API credentials
+3. Add these secrets in GitHub → Settings → Secrets:
+
+| Secret | Description |
+|--------|-------------|
+| `SCHWAB_SECTORBOT_APP_KEY` | Your Schwab API app key |
+| `SCHWAB_SECTORBOT_APP_SECRET` | Your Schwab API app secret |
+| `SCHWAB_SECTORBOT_ACCOUNT_HASH` | Your account hash (optional) |
+| `SCHWAB_SECTORBOT_TOKEN` | OAuth token (created after first auth) |
+
+### 3. First-Time Schwab Authentication
+
+Run locally once to generate the OAuth token:
+
+```bash
+python -c "
+from schwab import auth
+import os
+
+# Replace with your credentials
+APP_KEY = 'your_app_key'
+APP_SECRET = 'your_app_secret'
+CALLBACK_URL = 'https://127.0.0.1:8182'
+
+# This opens a browser for OAuth
+client = auth.client_from_manual_flow(APP_KEY, APP_SECRET, CALLBACK_URL, 'sectorbot_token.json')
+print('Token saved to sectorbot_token.json')
+"
+```
+
+Then copy the token contents to the `SCHWAB_SECTORBOT_TOKEN` secret.
+
+### 4. Optional: Email Notifications
+
+| Secret | Description | Example |
+|--------|-------------|---------|
+| `SMTP_SERVER` | Email server | `smtp.gmail.com` |
+| `SMTP_PORT` | SMTP port | `587` |
+| `SMTP_USERNAME` | Your email | `you@gmail.com` |
+| `SMTP_PASSWORD` | App password | (use Gmail app password) |
+| `EMAIL_TO` | Recipient email | `you@gmail.com` |
+
+### 5. Schedule
+
+Default: Runs Mon/Wed/Fri at 9:30 AM ET (market open)
+
+- **Scheduled runs**: Automatically execute trades via Schwab
+- **Manual runs**: Choose signal-only, dry-run, or live-execute
+
+## Account Size Recommendations
+
+| Account Size | Mode | Max Positions | Per Stock |
+|--------------|------|---------------|-----------|
+| $1,000 | Small | 10 | $100 each |
+| $5,000 | Small | 10 | $500 each |
+| $10,000+ | Large | 20 | $500 each |
+
+**$1,000 will work** but positions will be small ($100 each). Consider:
+- Using fewer positions manually (5-6 instead of 10)
+- Waiting until you have $2-3K for better diversification
+- Commission-free broker is essential at this size
 
 ## Files
 
-- `main.py` - Entry point
-- `strategy.py` - Core strategy logic
-- `sbi_calculator.py` - SBI calculation (exact from market-psar-scanner)
-- `config.py` - Configuration and sector mappings
-- `requirements.txt` - Python dependencies
+| File | Purpose |
+|------|---------|
+| `main.py` | Run signals and live trading |
+| `strategy.py` | Core strategy logic |
+| `config.py` | Sector/stock mappings |
+| `executor.py` | Schwab API integration |
+| `backtester.py` | Backtest strategies |
+| `sectorbot_signals.json` | Output signals |
 
-## Parent-Child Mappings
+## Backtesting
 
-| Category | Parent Signal | Child Stocks |
-|----------|--------------|--------------|
-| Crypto | BTC-USD | MSTR, MARA, COIN, CLSK... |
-| Crypto | ETH-USD | COIN, HOOD, SQ... |
-| Gold | GLD | NEM, GOLD, AEM, FNV... |
-| Silver | SLV | PAAS, WPM, HL, AG... |
-| Tech | XLK | AAPL, MSFT, NVDA, AMD... |
-| Semis | SMH | NVDA, TSM, AVGO, AMD... |
-| ... | ... | ... |
+```bash
+# Test different frequencies
+python backtester.py --start 2023-01-01 --end 2025-12-31 --small-account --trade-freq 3
 
-See `config.py` for full mappings.
+# Test specific year
+python backtester.py --start 2022-01-01 --end 2022-12-31 --small-account
 
-## Performance Notes
+# Options
+--trade-freq N    # Trade every N days (1=daily, 3=recommended, 5=weekly)
+--small-account   # 10 positions max
+--realistic       # Use next-day open for entries
+```
 
-This strategy is designed to:
-- **Reduce trades** by ~70% vs typical SBI-based systems
-- **Increase holding period** from days to weeks/months
-- **Improve tax efficiency** with more long-term gains
-- **Capture bigger moves** by riding trends longer
+## FAQ
 
-The trade-off is potentially missing some short-term reversals, but backtesting shows the reduced trading more than compensates.
+**Q: Why 3-day frequency?**
+A: Backtests show similar returns to daily with less work and slippage.
+
+**Q: Which mode should I use?**
+A: `rotation` for most markets. `parent_based` if you want less trading.
+
+**Q: Can I use this with Fidelity?**
+A: Yes! Run `python main.py` for signals, execute trades manually in Fidelity.
+
+**Q: How do I replicate Schwab trades in Fidelity?**
+A: Check the signals output after each run and manually place the same trades.
+
+**Q: What if I miss a day?**
+A: Run it when you can. The strategy is forgiving - missing one signal day won't ruin returns.
