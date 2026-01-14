@@ -1,0 +1,231 @@
+name: SectorBot Trading
+
+on:
+  schedule:
+    # Run at market open (9:30 AM ET = 14:30 UTC, 13:30 UTC during DST)
+    - cron: '30 14 * * 1-5'  # 9:30 AM ET (winter)
+    
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Run mode'
+        required: true
+        default: 'signal-only'
+        type: choice
+        options:
+          - signal-only
+          - live-dry-run
+          - live-execute
+      account_size:
+        description: 'Account size'
+        required: true
+        default: 'small'
+        type: choice
+        options:
+          - small
+          - large
+      generate_report:
+        description: 'Generate Patreon PNG report'
+        required: false
+        default: true
+        type: boolean
+
+env:
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  sectorbot:
+    name: Run SectorBot
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install schwab-py pillow
+      
+      - name: Restore Schwab token
+        if: ${{ github.event.inputs.mode != 'signal-only' || github.event_name == 'schedule' }}
+        env:
+          SCHWAB_SECTORBOT_TOKEN: ${{ secrets.SCHWAB_SECTORBOT_TOKEN }}
+        run: |
+          if [ -n "$SCHWAB_SECTORBOT_TOKEN" ]; then
+            echo "$SCHWAB_SECTORBOT_TOKEN" > sectorbot_token.json
+            echo "✅ Restored Schwab token"
+          else
+            echo "⚠️ No token found in secrets"
+          fi
+      
+      - name: Run SectorBot - Signal Only
+        if: ${{ github.event.inputs.mode == 'signal-only' || github.event.inputs.mode == '' }}
+        env:
+          ACCOUNT_SIZE: ${{ github.event.inputs.account_size || 'small' }}
+        run: |
+          if [ "$ACCOUNT_SIZE" = "large" ]; then
+            python main.py --signal-only --large --no-save
+          else
+            python main.py --signal-only --no-save
+          fi
+          
+          # Save JSON for image generation
+          python main.py --signal-only --json > sectorbot_signal.json
+      
+      - name: Run SectorBot - Live Dry Run
+        if: ${{ github.event.inputs.mode == 'live-dry-run' }}
+        env:
+          SCHWAB_SECTORBOT_APP_KEY: ${{ secrets.SCHWAB_SECTORBOT_APP_KEY }}
+          SCHWAB_SECTORBOT_APP_SECRET: ${{ secrets.SCHWAB_SECTORBOT_APP_SECRET }}
+          SCHWAB_SECTORBOT_ACCOUNT_HASH: ${{ secrets.SCHWAB_SECTORBOT_ACCOUNT_HASH }}
+          ACCOUNT_SIZE: ${{ github.event.inputs.account_size || 'small' }}
+        run: |
+          if [ "$ACCOUNT_SIZE" = "large" ]; then
+            python main.py --live --large
+          else
+            python main.py --live
+          fi
+      
+      - name: Run SectorBot - Live Execute
+        if: ${{ github.event.inputs.mode == 'live-execute' }}
+        env:
+          SCHWAB_SECTORBOT_APP_KEY: ${{ secrets.SCHWAB_SECTORBOT_APP_KEY }}
+          SCHWAB_SECTORBOT_APP_SECRET: ${{ secrets.SCHWAB_SECTORBOT_APP_SECRET }}
+          SCHWAB_SECTORBOT_ACCOUNT_HASH: ${{ secrets.SCHWAB_SECTORBOT_ACCOUNT_HASH }}
+          ACCOUNT_SIZE: ${{ github.event.inputs.account_size || 'small' }}
+        run: |
+          if [ "$ACCOUNT_SIZE" = "large" ]; then
+            python main.py --live --execute --auto-confirm --large
+          else
+            python main.py --live --execute --auto-confirm
+          fi
+      
+      - name: Generate Patreon PNG Report
+        if: ${{ github.event.inputs.generate_report == 'true' || github.event_name == 'schedule' }}
+        run: |
+          DATE=$(TZ='America/New_York' date +%Y-%m-%d)
+          
+          # Generate signal JSON (saved as sectorbot_allocation.json)
+          python main.py --signal-only
+          
+          # Generate PNG image
+          python generate_sectorbot_image.py --json sectorbot_allocation.json --output "SectorBot_Signal_${DATE}.png"
+          
+          # Copy to fixed name for email
+          cp "SectorBot_Signal_${DATE}.png" sectorbot_daily.png
+          
+          echo "✅ Generated: SectorBot_Signal_${DATE}.png"
+          ls -la *.png *.json
+      
+      - name: Save Schwab token
+        if: ${{ github.event.inputs.mode != 'signal-only' }}
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          if [ -f sectorbot_token.json ]; then
+            echo "Token saved (would update secret in production)"
+          fi
+      
+      - name: Upload Report Artifact
+        if: ${{ github.event.inputs.generate_report == 'true' || github.event_name == 'schedule' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sectorbot-report-${{ github.run_number }}
+          path: |
+            sectorbot_daily.png
+            sectorbot_allocation.json
+          retention-days: 30
+      
+      - name: Upload to S3 (for Lambda/Alexa)
+        if: ${{ (github.event.inputs.generate_report == 'true' || github.event_name == 'schedule') && secrets.AWS_ACCESS_KEY_ID != '' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          pip install awscli
+          DATE=$(TZ='America/New_York' date +%Y-%m-%d)
+          
+          # Upload JSON for Lambda/Alexa
+          aws s3 cp sectorbot_allocation.json s3://${S3_BUCKET}/sectorbot/sectorbot_allocation.json
+          aws s3 cp sectorbot_allocation.json s3://${S3_BUCKET}/sectorbot/sectorbot_allocation_${DATE}.json
+          
+          # Upload PNG
+          aws s3 cp sectorbot_daily.png s3://${S3_BUCKET}/sectorbot/sectorbot_signal_latest.png
+          aws s3 cp sectorbot_daily.png s3://${S3_BUCKET}/sectorbot/sectorbot_signal_${DATE}.png
+          
+          echo "✅ Uploaded to S3: s3://${S3_BUCKET}/sectorbot/"
+      
+      - name: Send Email with PNG Report
+        if: ${{ (github.event.inputs.generate_report == 'true' || github.event_name == 'schedule') && success() }}
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          secure: true
+          username: ${{ secrets.GMAIL_USERNAME }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          subject: "🤖 SectorBot Signal - ${{ github.run_number }}"
+          to: ${{ secrets.EMAIL_TO }}
+          from: "SectorBot <${{ secrets.GMAIL_USERNAME }}>"
+          body: |
+            Today's SectorBot signal image is attached.
+            
+            Upload this image to your Patreon post.
+            
+            ---
+            Run: #${{ github.run_number }}
+            Mode: ${{ github.event.inputs.mode || 'signal-only' }}
+            Account: ${{ github.event.inputs.account_size || 'small' }}
+            
+            View full logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          attachments: sectorbot_daily.png
+
+  # Separate job for scheduled runs with live trading
+  scheduled-trading:
+    name: Scheduled Live Trading
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'schedule' }}
+    needs: sectorbot
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install schwab-py
+      
+      - name: Restore Schwab token
+        env:
+          SCHWAB_SECTORBOT_TOKEN: ${{ secrets.SCHWAB_SECTORBOT_TOKEN }}
+        run: |
+          if [ -n "$SCHWAB_SECTORBOT_TOKEN" ]; then
+            echo "$SCHWAB_SECTORBOT_TOKEN" > sectorbot_token.json
+          fi
+      
+      - name: Execute Live Trades (Small Account)
+        env:
+          SCHWAB_SECTORBOT_APP_KEY: ${{ secrets.SCHWAB_SECTORBOT_APP_KEY }}
+          SCHWAB_SECTORBOT_APP_SECRET: ${{ secrets.SCHWAB_SECTORBOT_APP_SECRET }}
+          SCHWAB_SECTORBOT_ACCOUNT_HASH: ${{ secrets.SCHWAB_SECTORBOT_ACCOUNT_HASH }}
+        run: |
+          # Default: small account, live execute with auto-confirm
+          python main.py --live --execute --auto-confirm
