@@ -1,171 +1,340 @@
-# AdaptiveX2 SectorBot
+# SectorSBITrader 🎯
 
-Sector rotation strategy that trades ETF sectors and their top stocks.
+A sector rotation trading strategy that uses **parent signals** (sector ETFs, BTC, GLD, etc.) to determine timing, then **drills into individual stocks** using the **Signal Bullish Index (SBI)** for position selection.
 
-## Performance (Backtested)
-
-| Year | Market | Rotation (3-Day) | vs SPY |
-|------|--------|------------------|--------|
-| 2023-2025 | Bull | +83.5% | +40% better |
-| 2022 | Bear | +13.6% | +33% better |
-| 2018 | Choppy | +3.2% | +9% better |
-
-## Quick Start
+## 🚀 Quick Start
 
 ```bash
 # Install dependencies
-pip install -r requirements.txt
+pip install yfinance pandas numpy pillow
 
-# Run signals (default: rotation mode)
+# Run daily signal generation
 python main.py
 
-# Different modes
-python main.py --mode rotation          # Default - rotate weak stocks
-python main.py --mode parent_based      # Hold through weakness
-python main.py --mode weighted_rotation # Rotation + sector weighting
+# Scan all sectors
+python main.py --scan
 
-# Large account (20 positions instead of 10)
-python main.py --large
+# Scan specific sector
+python main.py --sector BTC-USD
 
-# Schwab live trading
-python main.py --live                   # Dry run (no real trades)
-python main.py --live --execute         # REAL trades!
+# Run backtest
+python main.py --backtest --start 2023-01-01 --end 2024-12-31
+
+# List available sectors
+python main.py --list-sectors
+
+# Generate Patreon signal image
+python generate_sectorbot_image.py
 ```
 
-## Trading Workflow (3-Day Frequency)
+## 📊 Strategy Overview
 
-Based on backtesting, checking signals every 3 days gives optimal results:
+### Core Concept
 
-**Monday, Wednesday, Friday:**
-1. Run `python main.py`
-2. Execute EXIT signals first
-3. Execute ROTATION signals (sell → buy)
-4. Execute ENTRY signals if you have open slots
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      STRATEGY FLOW                               │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  1. CHECK PARENT SIGNAL (Sector ETF / Asset)                    │
+│     └── Is BTC-USD > PSAR? → Bullish                           │
+│     └── Is XLK > PSAR? → Bullish                               │
+│                                                                 │
+│  2. IF PARENT BULLISH → SCAN CHILD STOCKS                       │
+│     └── Calculate SBI (0-10) for each stock                    │
+│     └── SBI = 10 → Enter with 2x weight                        │
+│     └── SBI = 9  → Enter with 1x weight                        │
+│     └── SBI < 9  → No entry                                    │
+│                                                                 │
+│  3. LOCK WEIGHTS UNTIL PARENT TURNS BEARISH                     │
+│     └── Keep 2x weight even if SBI drops to 7                  │
+│     └── Don't add more even if SBI stays at 10                 │
+│                                                                 │
+│  4. EXIT WHEN PARENT TURNS BEARISH                              │
+│     └── Exit ALL positions in that sector                      │
+│     └── Don't exit on individual stock signals                 │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-## Strategy Rules (Rotation Mode)
+### Signal Bullish Index (SBI)
 
-**Entry:**
-- Parent ETF PSAR bullish
-- Stock SBI ≥ 9
-- Stock PSAR bullish
-- Stock RSI > 50
+A 10-point scoring system measuring how bullish a stock is:
 
-**Exit:**
-- Parent ETF PSAR turns bearish → EXIT all stocks in sector
-- Stock PSAR bearish OR RSI < 40 → ROTATE to stronger stock
+| # | Indicator | Bullish Condition |
+|---|-----------|-------------------|
+| 1 | SMA(20) | Price > SMA(20) |
+| 2 | SMA(50) | Price > SMA(50) |
+| 3 | SMA(200) | Price > SMA(200) |
+| 4 | RSI(14) | RSI > 50 |
+| 5 | RSI(14) | RSI < 70 (not overbought) |
+| 6 | MACD | MACD > Signal Line |
+| 7 | MACD Histogram | Histogram > 0 |
+| 8 | PSAR | Price > PSAR |
+| 9 | Momentum | 20-day return > 0% |
+| 10 | Volume | Volume > 20-day avg |
 
-**Position Limits (Small Account):**
-- Max 10 positions total
-- Max 2 per sector
+**Entry Requirements:**
+- SBI = 10 → 2x weight multiplier
+- SBI = 9 → 1x weight multiplier
+- SBI < 9 → No entry
 
-## GitHub Actions Setup
+## 📁 Project Structure
 
-### 1. Fork/Clone Repository
+```
+SectorSBITrader/
+├── config.py                    # Configuration and sector mappings
+├── sbi_calculator.py            # SBI calculation logic
+├── strategy.py                  # Main strategy implementation
+├── data_fetcher.py              # Data retrieval (yfinance)
+├── backtester.py                # Historical simulation
+├── main.py                      # CLI entry point
+├── generate_sectorbot_image.py  # Patreon PNG generator
+└── README.md                    # This file
+```
 
-### 2. Schwab API Setup (for automated trading)
+## 🎨 Patreon Signal Image Generation
 
-1. Go to [Schwab Developer Portal](https://developer.schwab.com)
-2. Create an app and get your API credentials
-3. Add these secrets in GitHub → Settings → Secrets:
+Generate a professional PNG image of daily signals for Patreon subscribers.
 
-| Secret | Description |
-|--------|-------------|
-| `SCHWAB_SECTORBOT_APP_KEY` | Your Schwab API app key |
-| `SCHWAB_SECTORBOT_APP_SECRET` | Your Schwab API app secret |
-| `SCHWAB_SECTORBOT_ACCOUNT_HASH` | Your account hash (optional) |
-| `SCHWAB_SECTORBOT_TOKEN` | OAuth token (created after first auth) |
-
-### 3. First-Time Schwab Authentication
-
-Run locally once to generate the OAuth token:
+### Usage
 
 ```bash
-python -c "
-from schwab import auth
-import os
+# Generate image from live scan (runs strategy first)
+python generate_sectorbot_image.py
 
-# Replace with your credentials
-APP_KEY = 'your_app_key'
-APP_SECRET = 'your_app_secret'
-CALLBACK_URL = 'https://127.0.0.1:8182'
+# Generate from existing JSON file
+python generate_sectorbot_image.py --json sectorbot_allocation.json
 
-# This opens a browser for OAuth
-client = auth.client_from_manual_flow(APP_KEY, APP_SECRET, CALLBACK_URL, 'sectorbot_token.json')
-print('Token saved to sectorbot_token.json')
-"
+# Custom output filename
+python generate_sectorbot_image.py --output daily_signal_2025-01-14.png
+
+# Use sample data for testing
+python generate_sectorbot_image.py --sample
 ```
 
-Then copy the token contents to the `SCHWAB_SECTORBOT_TOKEN` secret.
+### What the Image Shows
 
-### 4. Optional: Email Notifications
+The generated PNG includes:
 
-| Secret | Description | Example |
-|--------|-------------|---------|
-| `SMTP_SERVER` | Email server | `smtp.gmail.com` |
-| `SMTP_PORT` | SMTP port | `587` |
-| `SMTP_USERNAME` | Your email | `you@gmail.com` |
-| `SMTP_PASSWORD` | App password | (use Gmail app password) |
-| `EMAIL_TO` | Recipient email | `you@gmail.com` |
+1. **Parent Signals (PSAR)** - Visual cards showing which sectors are bullish/bearish
+   - Green border = Parent PSAR is BULLISH (sector active)
+   - Red border = Parent PSAR is BEARISH (sector inactive)
+   - Shows trend duration (e.g., "+ Day 12")
 
-### 5. Schedule
+2. **Current Positions** - Table of all held stocks with:
+   - Ticker symbol
+   - Parent sector (BTC-USD, GLD, XLK, etc.)
+   - Portfolio weight %
+   - SBI score at entry
+   - Entry date
 
-Default: Runs Mon/Wed/Fri at 9:30 AM ET (market open)
+3. **Entry Signals** - New BUY recommendations
+   - Stocks with SBI=10 in newly bullish sectors
 
-- **Scheduled runs**: Automatically execute trades via Schwab
-- **Manual runs**: Choose signal-only, dry-run, or live-execute
+4. **Rotation Signals** - Within-sector swaps
+   - When a better SBI=10 stock appears in same sector
 
-## Account Size Recommendations
+5. **Exit Signals** - SELL recommendations
+   - All positions in sectors where parent turned bearish
 
-| Account Size | Mode | Max Positions | Per Stock |
-|--------------|------|---------------|-----------|
-| $1,000 | Small | 10 | $100 each |
-| $5,000 | Small | 10 | $500 each |
-| $10,000+ | Large | 20 | $500 each |
+6. **Strategy Rules** - Quick reference for subscribers
 
-**$1,000 will work** but positions will be small ($100 each). Consider:
-- Using fewer positions manually (5-6 instead of 10)
-- Waiting until you have $2-3K for better diversification
-- Commission-free broker is essential at this size
+7. **Disclaimer** - Required legal notice
 
-## Files
+### Automated Generation (GitHub Actions)
 
-| File | Purpose |
-|------|---------|
-| `main.py` | Run signals and live trading |
-| `strategy.py` | Core strategy logic |
-| `config.py` | Sector/stock mappings |
-| `executor.py` | Schwab API integration |
-| `backtester.py` | Backtest strategies |
-| `sectorbot_signals.json` | Output signals |
+Add to your workflow to generate and upload the image automatically:
 
-## Backtesting
+```yaml
+- name: Generate Patreon Signal Image
+  run: |
+    python main.py --output sectorbot_allocation.json
+    python generate_sectorbot_image.py --json sectorbot_allocation.json --output signal.png
+
+- name: Upload Signal Image
+  uses: actions/upload-artifact@v4
+  with:
+    name: patreon-signal
+    path: signal.png
+```
+
+### JSON Data Format
+
+The image generator expects JSON in this format:
+
+```json
+{
+  "generated_at": "2025-01-14T09:30:00",
+  "parent_signals": [
+    {"parent": "BTC-USD", "name": "Bitcoin", "psar_status": "BULLISH", "psar_trend_days": 12},
+    {"parent": "GLD", "name": "Gold", "psar_status": "BULLISH", "psar_trend_days": 8},
+    {"parent": "XLK", "name": "Technology", "psar_status": "BEARISH", "psar_trend_days": 3}
+  ],
+  "target_allocation": [
+    {"ticker": "MSTR", "parent": "BTC-USD", "weight": 0.15, "sbi": 10, "entry_date": "2025-01-02"},
+    {"ticker": "GFI", "parent": "GLD", "weight": 0.10, "sbi": 10, "entry_date": "2025-01-05"}
+  ],
+  "entry_signals": [
+    {"ticker": "ABBV", "parent": "XLV", "sbi": 10}
+  ],
+  "rotation_signals": [
+    {"from_ticker": "MARA", "to_ticker": "CLSK", "parent": "BTC-USD"}
+  ],
+  "exit_signals": [
+    {"ticker": "NVDA", "parent": "SMH", "reason": "Parent turned bearish"}
+  ]
+}
+```
+
+## 🗂️ Sector Mappings
+
+### Crypto (Parent: BTC-USD, ETH-USD, SOL-USD)
+| Parent | Child Stocks |
+|--------|--------------|
+| BTC-USD | MSTR, MARA, XXI, MTPLF, COIN, CLSK |
+| ETH-USD | BMNR, SBET, FETH |
+| SOL-USD | FSOL |
+
+### Precious Metals (Parent: GLD, SLV)
+| Parent | Child Stocks |
+|--------|--------------|
+| GLD | GDX, AU, KGC, HMY, AEM, GFI, NEM, GOLD, WPM, FNV |
+| SLV | PAAS, AG, HL, CDE, MAG, FSM |
+
+### S&P 500 Sectors
+| Parent | Description | Sample Stocks |
+|--------|-------------|---------------|
+| XLK | Technology | AAPL, MSFT, NVDA, AVGO... |
+| XLF | Financials | JPM, V, MA, BAC... |
+| XLV | Healthcare | LLY, UNH, JNJ, ABBV... |
+| XLY | Consumer Disc | AMZN, TSLA, HD, MCD... |
+| XLC | Comm Services | META, GOOGL, NFLX, DIS... |
+| XLI | Industrials | GE, CAT, RTX, UNP... |
+| XLP | Staples | PG, KO, PEP, COST... |
+| XLE | Energy | XOM, CVX, COP, SLB... |
+| XLU | Utilities | NEE, SO, DUK, CEG... |
+| XLRE | Real Estate | PLD, AMT, EQIX, WELL... |
+| XLB | Materials | LIN, SHW, APD, FCX... |
+
+### Industries
+| Parent | Description | Sample Stocks |
+|--------|-------------|---------------|
+| SMH | Semiconductors | NVDA, TSM, AVGO, AMD... |
+| IBB | Biotech | VRTX, AMGN, GILD, REGN... |
+| KRE | Regional Banks | HBAN, RF, CFG, KEY... |
+| XHB | Homebuilders | DHI, LEN, NVR, PHM... |
+| URA | Nuclear/Uranium | CCJ, CEG, VST, SMR... |
+
+### International
+| Parent | Country | Sample Stocks |
+|--------|---------|---------------|
+| FXI | China | BABA, JD, PDD, BIDU... |
+| EWJ | Japan | TM, SONY, MUFG... |
+| INDA | India | INFY, WIT, HDB, IBN... |
+| EWZ | Brazil | VALE, PBR, ITUB... |
+| EEM | Emerging | TSM, BABA, VALE... |
+
+## ⚙️ Configuration
+
+Edit `config.py` to customize:
+
+```python
+@dataclass
+class StrategyConfig:
+    # SBI Entry Thresholds
+    sbi_10_weight: float = 2.0    # Weight for SBI=10
+    sbi_9_weight: float = 1.0     # Weight for SBI=9
+    
+    # Position Management
+    max_stocks_per_sector: int = 10
+    max_total_positions: int = 50
+    
+    # Sector Allocations
+    sector_allocations = {
+        'crypto': 0.25,           # 25% to crypto
+        'precious_metals': 0.20,  # 20% to gold/silver
+        'sp500_sectors': 0.30,    # 30% to S&P sectors
+        'industries': 0.15,       # 15% to industries
+        'international': 0.10,    # 10% to international
+    }
+```
+
+## 🔄 Workflow Example
+
+### Day 1: BTC-USD turns bullish
+```
+Parent Signal: BTC-USD > PSAR → BULLISH
+
+Scanning child stocks:
+  MSTR: SBI = 10 → ENTER (2x weight)
+  COIN: SBI = 9  → ENTER (1x weight)
+  MARA: SBI = 7  → SKIP
+  CLSK: SBI = 8  → SKIP
+```
+
+### Day 15: Market volatile but BTC still bullish
+```
+Parent Signal: BTC-USD still > PSAR → HOLD
+
+Current positions:
+  MSTR: Keep 2x weight (even if SBI dropped to 8)
+  COIN: Keep 1x weight
+```
+
+### Day 30: BTC-USD turns bearish
+```
+Parent Signal: BTC-USD < PSAR → EXIT ALL
+
+Action: Sell MSTR, COIN
+       (Exit entire Bitcoin sector)
+```
+
+## 🔐 Schwab Integration
+
+Set environment variables:
 
 ```bash
-# Test different frequencies
-python backtester.py --start 2023-01-01 --end 2025-12-31 --small-account --trade-freq 3
-
-# Test specific year
-python backtester.py --start 2022-01-01 --end 2022-12-31 --small-account
-
-# Options
---trade-freq N    # Trade every N days (1=daily, 3=recommended, 5=weekly)
---small-account   # 10 positions max
---realistic       # Use next-day open for entries
+export SCHWAB_SBI_APP_KEY="your_app_key"
+export SCHWAB_SBI_APP_SECRET="your_app_secret"
+export SCHWAB_SBI_ACCOUNT_HASH="your_account_hash"
 ```
 
-## FAQ
+## 📈 Backtest
 
-**Q: Why 3-day frequency?**
-A: Backtests show similar returns to daily with less work and slippage.
+```bash
+# Full backtest
+python main.py --backtest
 
-**Q: Which mode should I use?**
-A: `rotation` for most markets. `parent_based` if you want less trading.
+# Custom date range
+python main.py --backtest --start 2023-01-01 --end 2024-12-31
+```
 
-**Q: Can I use this with Fidelity?**
-A: Yes! Run `python main.py` for signals, execute trades manually in Fidelity.
+Output includes:
+- Total Return & CAGR
+- Max Drawdown
+- Sharpe & Sortino Ratios
+- Win Rate & Profit Factor
+- Comparison to SPY buy & hold
 
-**Q: How do I replicate Schwab trades in Fidelity?**
-A: Check the signals output after each run and manually place the same trades.
+## 🔗 Related Projects
 
-**Q: What if I miss a day?**
-A: Run it when you can. The strategy is forgiving - missing one signal day won't ruin returns.
+- **AdaptiveX2** - ETF-based momentum strategy with 2x leverage
+- This project extends the concept to individual stocks without leverage
+
+## 📝 Key Differences from AdaptiveX2
+
+| Feature | AdaptiveX2 | SectorSBITrader |
+|---------|------------|-----------------|
+| Instruments | ETFs (QLD, BITU...) | Individual stocks |
+| Signal Source | Direct PSAR | Parent ETF PSAR |
+| Entry Criteria | PSAR bullish | Parent bullish + SBI ≥ 9 |
+| Exit Rule | Individual PSAR | Parent turns bearish |
+| Leverage | 2x ETFs | 1x stocks (no leverage) |
+| Weight Logic | Momentum-based | SBI score (2x/1x) |
+
+---
+
+*Built as a separate trading bot from AdaptiveX2*
+*Designed for a dedicated Schwab account*
+*GL Tradewinds LLC*

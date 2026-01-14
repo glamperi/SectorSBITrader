@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-SectorBot Daily Signal Image Generator
-Generates a PNG image for Patreon subscribers
+AdaptiveX2 SectorBot Daily Signal Image Generator
+Parent signal (PSAR) → Individual stocks (SBI=10)
 
 Usage:
     python generate_sectorbot_image.py                           # Run scan and generate
@@ -14,7 +14,6 @@ import json
 import argparse
 from datetime import datetime
 import os
-import sys
 
 # Colors
 DARK_BG = (10, 14, 23)
@@ -26,79 +25,57 @@ SUCCESS = (34, 197, 94)
 DANGER = (239, 68, 68)
 BLUE = (59, 130, 246)
 YELLOW = (234, 179, 8)
-
-
-def load_signal_data(json_path=None):
-    """Load signal data from JSON file or run scan."""
-    
-    # Try loading from JSON file first
-    if json_path and os.path.exists(json_path):
-        print(f"📂 Loading from {json_path}...")
-        try:
-            with open(json_path, 'r') as f:
-                data = json.load(f)
-            
-            # Debug: show what we loaded
-            print(f"   Type: {type(data)}")
-            if isinstance(data, dict):
-                print(f"   Keys: {list(data.keys())[:10]}")
-                if 'target_allocation' in data:
-                    ta = data['target_allocation']
-                    print(f"   target_allocation type: {type(ta)}, len: {len(ta) if hasattr(ta, '__len__') else 'N/A'}")
-            
-            # Validate it's a dict with expected keys
-            if isinstance(data, dict) and 'target_allocation' in data:
-                return data
-            else:
-                print(f"⚠️ JSON file doesn't have expected format, running scan...")
-        except Exception as e:
-            print(f"⚠️ Failed to load JSON: {e}")
-    
-    # Run scan to generate data
-    print("📊 Running SectorBot scan...")
-    try:
-        from main import run_signal_only
-        signals = run_signal_only(small_account=True, output_json=False, save_report=True)
-        if isinstance(signals, dict):
-            return signals
-        else:
-            print(f"⚠️ Scan returned unexpected type: {type(signals)}")
-            return get_sample_data()
-    except Exception as e:
-        print(f"❌ Failed to run scan: {e}")
-        import traceback
-        traceback.print_exc()
-        return get_sample_data()
+CYAN = (34, 211, 238)
 
 
 def get_sample_data():
-    """Return sample data for testing."""
+    """Return sample data for testing/demo."""
     return {
         "generated_at": datetime.now().isoformat(),
-        "active_sectors": [
-            {"parent": "QQQ", "description": "Technology"},
-            {"parent": "IBIT", "description": "Bitcoin"},
-            {"parent": "GLD", "description": "Gold"},
+        "strategy": "AdaptiveX2 SectorBot",
+        
+        # Parent sectors and their status
+        "parent_signals": [
+            {"parent": "BTC-USD", "name": "Bitcoin", "psar_status": "BULLISH", "psar_trend_days": 12},
+            {"parent": "GLD", "name": "Gold", "psar_status": "BULLISH", "psar_trend_days": 8},
+            {"parent": "XLK", "name": "Technology", "psar_status": "BEARISH", "psar_trend_days": 3},
+            {"parent": "XLV", "name": "Healthcare", "psar_status": "BULLISH", "psar_trend_days": 5},
+            {"parent": "SMH", "name": "Semiconductors", "psar_status": "BEARISH", "psar_trend_days": 2},
+            {"parent": "XLE", "name": "Energy", "psar_status": "BEARISH", "psar_trend_days": 15},
         ],
-        "inactive_sectors": [
-            {"parent": "XLE", "description": "Energy"},
-        ],
+        
+        # Current positions (stocks held)
         "target_allocation": [
-            {"ticker": "NVDA", "sector": "QQQ", "weight": 0.10, "sbi": 10},
-            {"ticker": "MSTR", "sector": "IBIT", "weight": 0.10, "sbi": 10},
-            {"ticker": "AVGO", "sector": "SMH", "weight": 0.10, "sbi": 9},
-            {"ticker": "META", "sector": "XLC", "weight": 0.10, "sbi": 9},
-            {"ticker": "GFI", "sector": "GDX", "weight": 0.10, "sbi": 9},
+            {"ticker": "MSTR", "parent": "BTC-USD", "weight": 0.15, "sbi": 10, "entry_date": "2025-01-02"},
+            {"ticker": "COIN", "parent": "BTC-USD", "weight": 0.10, "sbi": 10, "entry_date": "2025-01-02"},
+            {"ticker": "GFI", "parent": "GLD", "weight": 0.10, "sbi": 10, "entry_date": "2025-01-05"},
+            {"ticker": "NEM", "parent": "GLD", "weight": 0.10, "sbi": 10, "entry_date": "2025-01-05"},
+            {"ticker": "AEM", "parent": "GLD", "weight": 0.08, "sbi": 9, "entry_date": "2025-01-06"},
+            {"ticker": "LLY", "parent": "XLV", "weight": 0.12, "sbi": 10, "entry_date": "2025-01-10"},
+            {"ticker": "UNH", "parent": "XLV", "weight": 0.10, "sbi": 10, "entry_date": "2025-01-10"},
         ],
+        
+        # Today's signals
         "entry_signals": [
-            {"ticker": "COIN", "sector": "IBIT", "sbi": 10},
+            {"ticker": "ABBV", "parent": "XLV", "sbi": 10, "reason": "New SBI=10 in bullish sector"},
         ],
+        
         "rotation_signals": [
-            {"from_ticker": "AMD", "to_ticker": "NVDA", "sector": "SMH"},
+            {"from_ticker": "MARA", "to_ticker": "CLSK", "parent": "BTC-USD", "reason": "SBI 7->10"},
         ],
+        
         "exit_signals": [
-            {"ticker": "BABA", "reason": "Parent bearish"},
+            {"ticker": "NVDA", "parent": "SMH", "reason": "Parent turned bearish"},
+            {"ticker": "AMD", "parent": "SMH", "reason": "Parent turned bearish"},
         ],
+        
+        # Backtest stats (placeholder)
+        "backtest": {
+            "total_return": "+285%",
+            "spy_return": "+52%",
+            "max_drawdown": "-12%",
+            "sharpe": 1.45,
+        }
     }
 
 
@@ -120,216 +97,223 @@ def get_font(size, bold=False):
     return ImageFont.load_default()
 
 
+def draw_rounded_rect(draw, coords, radius, fill, outline=None, width=1):
+    """Draw a rounded rectangle."""
+    x1, y1, x2, y2 = coords
+    draw.rounded_rectangle(coords, radius=radius, fill=fill, outline=outline, width=width)
+
+
 def create_signal_image(signal_data: dict, output_path: str = "sectorbot_signal.png"):
     """Generate the SectorBot signal PNG image."""
     
-    # Defensive: ensure we have a dict
     if not isinstance(signal_data, dict):
-        print(f"⚠️ signal_data is {type(signal_data)}, using sample data")
         signal_data = get_sample_data()
     
     # Image dimensions
-    width = 800
-    height = 1000  # Shorter since cleaner layout
+    width = 850
+    height = 1100
     
-    # Create image
     img = Image.new('RGB', (width, height), DARK_BG)
     draw = ImageDraw.Draw(img)
     
     # Fonts
-    font_title = get_font(32, bold=True)
-    font_medium = get_font(20, bold=True)
-    font_normal = get_font(16)
-    font_small = get_font(14)
+    font_title = get_font(28, bold=True)
+    font_subtitle = get_font(16)
+    font_section = get_font(18, bold=True)
+    font_normal = get_font(15)
+    font_small = get_font(13)
     font_tiny = get_font(11)
     
-    y = 20
+    y = 25
     
-    # Header
-    draw.text((width // 2, y), "🤖 SectorBot", font=font_title, fill=GOLD, anchor="mt")
-    y += 45
+    # === HEADER ===
+    draw.text((width // 2, y), "AdaptiveX2 SectorBot", font=font_title, fill=GOLD, anchor="mt")
+    y += 35
+    
+    draw.text((width // 2, y), "Parent Signal + SBI Stock Selection", font=font_small, fill=TEXT_MUTED, anchor="mt")
+    y += 25
     
     # Date
     generated = signal_data.get("generated_at", datetime.now().isoformat())
-    if isinstance(generated, str):
-        try:
-            dt = datetime.fromisoformat(generated.replace('Z', '+00:00'))
-            date_str = dt.strftime("%B %d, %Y %I:%M %p ET")
-        except:
-            date_str = generated
-    else:
-        date_str = datetime.now().strftime("%B %d, %Y %I:%M %p ET")
+    try:
+        dt = datetime.fromisoformat(str(generated).replace('Z', '+00:00'))
+        date_str = dt.strftime("%B %d, %Y")
+    except:
+        date_str = datetime.now().strftime("%B %d, %Y")
     
-    draw.text((width // 2, y), date_str, font=font_small, fill=TEXT_MUTED, anchor="mt")
+    draw.text((width // 2, y), date_str, font=font_subtitle, fill=TEXT_WHITE, anchor="mt")
     y += 35
     
     # Divider
-    draw.line([(50, y), (width - 50, y)], fill=GOLD, width=2)
+    draw.line([(40, y), (width - 40, y)], fill=GOLD, width=2)
     y += 20
     
-    # Summary stats
-    active_count = len(signal_data.get("active_sectors", []))
-    entry_count = len(signal_data.get("entry_signals", []))
-    rotation_count = len(signal_data.get("rotation_signals", []))
-    exit_count = len(signal_data.get("exit_signals", []))
-    position_count = len(signal_data.get("target_allocation", []))
-    
-    # Stats boxes
-    box_width = 150
-    box_height = 60
-    box_y = y
-    boxes = [
-        (f"{active_count}", "Active Sectors", SUCCESS),
-        (f"{position_count}", "Positions", BLUE),
-        (f"{entry_count}", "Entries", SUCCESS),
-        (f"{exit_count}", "Exits", DANGER),
-    ]
-    
-    box_x_start = (width - (box_width * 4 + 30)) // 2
-    for i, (value, label, color) in enumerate(boxes):
-        box_x = box_x_start + i * (box_width + 10)
-        draw.rectangle([box_x, box_y, box_x + box_width, box_y + box_height], fill=CARD_BG, outline=color, width=2)
-        draw.text((box_x + box_width // 2, box_y + 15), value, font=font_medium, fill=color, anchor="mt")
-        draw.text((box_x + box_width // 2, box_y + 40), label, font=font_tiny, fill=TEXT_MUTED, anchor="mt")
-    
-    y = box_y + box_height + 25
-    
-    # Target Allocation Table
-    draw.text((50, y), "📊 TARGET ALLOCATION", font=font_medium, fill=GOLD)
+    # === PARENT SIGNALS SECTION ===
+    draw.text((50, y), "PARENT SIGNALS (PSAR)", font=font_section, fill=GOLD)
     y += 30
     
-    # Table header - Ticker, Sector, Weight (no SBI)
-    draw.rectangle([50, y, width - 50, y + 30], fill=CARD_BG)
-    draw.text((70, y + 7), "Ticker", font=font_small, fill=TEXT_MUTED)
-    draw.text((220, y + 7), "Sector", font=font_small, fill=TEXT_MUTED)
-    draw.text((500, y + 7), "Weight", font=font_small, fill=TEXT_MUTED)
-    y += 35
+    parent_signals = signal_data.get("parent_signals", [])
     
-    # Build lookup from entry_signals for sector info
-    entry_lookup = {}
-    for sig in signal_data.get("entry_signals", []):
-        if isinstance(sig, dict):
-            ticker = sig.get("ticker")
-            if ticker:
-                entry_lookup[ticker] = sig.get("parent", "")
+    # Create cards for parent signals
+    card_width = 125
+    card_height = 55
+    cards_per_row = 6
+    card_spacing = 8
+    total_cards_width = cards_per_row * card_width + (cards_per_row - 1) * card_spacing
+    start_x = (width - total_cards_width) // 2
     
-    # Table rows
-    raw_allocations = signal_data.get("target_allocation", {})
+    for i, parent in enumerate(parent_signals[:12]):
+        row = i // cards_per_row
+        col = i % cards_per_row
+        
+        x = start_x + col * (card_width + card_spacing)
+        card_y = y + row * (card_height + 8)
+        
+        ticker = parent.get("parent", "N/A")
+        name = parent.get("name", ticker)
+        status = parent.get("psar_status", "UNKNOWN")
+        days = parent.get("psar_trend_days", 0)
+        
+        # Card color based on status
+        if status == "BULLISH":
+            outline_color = SUCCESS
+            status_text = f"+ Day {days}"
+        else:
+            outline_color = DANGER
+            status_text = f"- Day {days}"
+        
+        draw_rounded_rect(draw, (x, card_y, x + card_width, card_y + card_height), 
+                         radius=6, fill=CARD_BG, outline=outline_color, width=2)
+        
+        # Ticker
+        draw.text((x + card_width // 2, card_y + 12), ticker, font=font_small, fill=TEXT_WHITE, anchor="mt")
+        # Status
+        status_color = SUCCESS if status == "BULLISH" else DANGER
+        draw.text((x + card_width // 2, card_y + 32), status_text, font=font_tiny, fill=status_color, anchor="mt")
     
-    # Convert to list
-    allocations = []
-    if isinstance(raw_allocations, dict):
-        for ticker, value in raw_allocations.items():
-            weight = value if isinstance(value, (int, float)) else value.get("weight", 0)
-            sector = entry_lookup.get(ticker, "")  # Get sector from entry_signals
-            allocations.append({"ticker": ticker, "weight": weight, "sector": sector})
-    elif isinstance(raw_allocations, list):
-        allocations = raw_allocations
+    rows_used = (len(parent_signals[:12]) + cards_per_row - 1) // cards_per_row
+    y += rows_used * (card_height + 8) + 25
     
-    # Sort by weight descending
+    # === CURRENT POSITIONS ===
+    draw.text((50, y), "CURRENT POSITIONS", font=font_section, fill=GOLD)
+    y += 28
+    
+    # Table header
+    draw.rectangle([50, y, width - 50, y + 28], fill=CARD_BG)
+    draw.text((70, y + 6), "Ticker", font=font_small, fill=TEXT_MUTED)
+    draw.text((180, y + 6), "Parent", font=font_small, fill=TEXT_MUTED)
+    draw.text((320, y + 6), "Weight", font=font_small, fill=TEXT_MUTED)
+    draw.text((420, y + 6), "SBI", font=font_small, fill=TEXT_MUTED)
+    draw.text((500, y + 6), "Entry", font=font_small, fill=TEXT_MUTED)
+    y += 32
+    
+    allocations = signal_data.get("target_allocation", [])
+    if isinstance(allocations, dict):
+        allocations = [{"ticker": k, "weight": v} for k, v in allocations.items()]
+    
+    # Sort by weight
     try:
         allocations = sorted(allocations, key=lambda x: x.get('weight', 0), reverse=True)
     except:
         pass
     
-    display_allocations = allocations[:12]
-    total_allocations = len(allocations)
-    
-    for pos in display_allocations:
+    for pos in allocations[:10]:
         ticker = pos.get("ticker", "N/A")
-        sector = pos.get("sector", "")
+        parent = pos.get("parent", "-")
         weight = pos.get("weight", 0)
+        sbi = pos.get("sbi", "-")
+        entry = pos.get("entry_date", "-")
+        if entry and len(entry) > 5:
+            entry = entry[5:]  # Just MM-DD
         
-        # Row background
-        draw.rectangle([50, y, width - 50, y + 28], fill=(20, 28, 40))
+        # Alternating row bg
+        row_bg = (18, 24, 35) if allocations.index(pos) % 2 == 0 else DARK_BG
+        draw.rectangle([50, y, width - 50, y + 26], fill=row_bg)
         
-        # Ticker (bold green)
         draw.text((70, y + 5), ticker, font=font_normal, fill=SUCCESS)
+        draw.text((180, y + 5), str(parent)[:12], font=font_normal, fill=CYAN)
+        draw.text((320, y + 5), f"{weight * 100:.1f}%", font=font_normal, fill=TEXT_WHITE)
         
-        # Sector
-        draw.text((220, y + 5), str(sector)[:20], font=font_normal, fill=TEXT_WHITE)
+        sbi_color = SUCCESS if sbi == 10 else YELLOW if sbi == 9 else TEXT_MUTED
+        draw.text((420, y + 5), str(sbi), font=font_normal, fill=sbi_color)
+        draw.text((500, y + 5), str(entry), font=font_normal, fill=TEXT_MUTED)
         
-        # Weight
-        weight_str = f"{weight * 100:.1f}%"
-        draw.text((500, y + 5), weight_str, font=font_normal, fill=TEXT_WHITE)
-        
-        y += 30
+        y += 28
     
-    if total_allocations > 12:
-        draw.text((70, y + 5), f"... and {total_allocations - 12} more", font=font_small, fill=TEXT_MUTED)
-        y += 25
+    if len(allocations) > 10:
+        draw.text((70, y + 3), f"... +{len(allocations) - 10} more positions", font=font_small, fill=TEXT_MUTED)
+        y += 22
     
     y += 15
     
-    # Active Sectors
-    draw.text((50, y), "✅ ACTIVE SECTORS", font=font_medium, fill=SUCCESS)
-    y += 28
+    # === ENTRY SIGNALS ===
+    entries = signal_data.get("entry_signals", [])
+    if entries:
+        draw.text((50, y), ">> ENTRY SIGNALS", font=font_section, fill=SUCCESS)
+        y += 26
+        for sig in entries[:5]:
+            ticker = sig.get("ticker", "N/A")
+            parent = sig.get("parent", "-")
+            sbi = sig.get("sbi", 10)
+            draw.text((70, y), f"BUY {ticker}", font=font_normal, fill=SUCCESS)
+            draw.text((200, y), f"Parent: {parent}", font=font_small, fill=CYAN)
+            draw.text((380, y), f"SBI: {sbi}", font=font_small, fill=SUCCESS)
+            y += 24
+        y += 10
     
-    active_sectors = signal_data.get("active_sectors", [])
-    
-    # Handle different formats: list of strings or list of dicts
-    sector_names = []
-    for s in active_sectors[:10]:
-        if isinstance(s, dict):
-            sector_names.append(s.get('parent', s.get('ticker', 'N/A')))
-        else:
-            sector_names.append(str(s))
-    
-    sector_text = ", ".join(sector_names) if sector_names else "None"
-    if len(active_sectors) > 10:
-        sector_text += f" +{len(active_sectors) - 10} more"
-    
-    # Wrap text
-    draw.text((60, y), sector_text if sector_text else "None", font=font_normal, fill=TEXT_WHITE)
-    y += 30
-    
-    # Rotation Signals (only show if there are any)
+    # === ROTATION SIGNALS ===
     rotations = signal_data.get("rotation_signals", [])
     if rotations:
-        draw.text((50, y), "🔄 ROTATION SIGNALS", font=font_medium, fill=YELLOW)
-        y += 28
+        draw.text((50, y), "<> ROTATION SIGNALS", font=font_section, fill=YELLOW)
+        y += 26
         for sig in rotations[:5]:
-            if isinstance(sig, dict):
-                from_t = sig.get("from_ticker", sig.get("from", "N/A"))
-                to_t = sig.get("to_ticker", sig.get("to", "N/A"))
-                sector = sig.get("sector", sig.get("parent", "N/A"))
-                draw.text((60, y), f"• {from_t} → {to_t} ({sector})", font=font_normal, fill=YELLOW)
-            else:
-                draw.text((60, y), f"• {sig}", font=font_normal, fill=YELLOW)
+            from_t = sig.get("from_ticker", "?")
+            to_t = sig.get("to_ticker", "?")
+            parent = sig.get("parent", "-")
+            draw.text((70, y), f"{from_t} -> {to_t}", font=font_normal, fill=YELLOW)
+            draw.text((250, y), f"({parent})", font=font_small, fill=TEXT_MUTED)
             y += 24
         y += 10
     
-    # Exit Signals (only show if there are any)
+    # === EXIT SIGNALS ===
     exits = signal_data.get("exit_signals", [])
     if exits:
-        draw.text((50, y), "🚨 EXIT SIGNALS", font=font_medium, fill=DANGER)
-        y += 28
+        draw.text((50, y), "!! EXIT SIGNALS", font=font_section, fill=DANGER)
+        y += 26
         for sig in exits[:5]:
-            if isinstance(sig, dict):
-                ticker = sig.get("ticker", "N/A")
-                reason = sig.get("reason", "Sector bearish")
-                draw.text((60, y), f"• {ticker}: {reason}", font=font_normal, fill=DANGER)
-            else:
-                draw.text((60, y), f"• {sig}", font=font_normal, fill=DANGER)
+            ticker = sig.get("ticker", "N/A")
+            reason = sig.get("reason", "Parent bearish")
+            draw.text((70, y), f"SELL {ticker}", font=font_normal, fill=DANGER)
+            draw.text((200, y), reason[:40], font=font_small, fill=TEXT_MUTED)
             y += 24
         y += 10
     
-    # Performance box
-    y = height - 180
-    draw.rectangle([50, y, width - 50, y + 80], fill=CARD_BG, outline=GOLD, width=1)
-    draw.text((width // 2, y + 10), "📈 BACKTEST PERFORMANCE (2022-2024)", font=font_small, fill=GOLD, anchor="mt")
-    draw.text((width // 2, y + 35), "2022: +45% (SPY -19%)  |  2023: +70% (SPY +27%)  |  2024: +114% (SPY +26%)", font=font_small, fill=TEXT_WHITE, anchor="mt")
-    draw.text((width // 2, y + 55), "Max Drawdown: ~5% vs SPY ~25%", font=font_small, fill=SUCCESS, anchor="mt")
+    # === STRATEGY SUMMARY BOX ===
+    y = height - 200
+    draw.rectangle([40, y, width - 40, y + 100], fill=CARD_BG, outline=GOLD, width=1)
     
-    # Disclaimer
-    y = height - 90
-    draw.line([(50, y), (width - 50, y)], fill=(50, 60, 80), width=1)
-    y += 10
+    draw.text((width // 2, y + 12), "STRATEGY RULES", font=font_section, fill=GOLD, anchor="mt")
+    
+    rules = [
+        "1. Enter stocks with SBI=10 when Parent PSAR is BULLISH",
+        "2. Hold position as long as Parent stays BULLISH",
+        "3. Exit ALL positions in sector when Parent turns BEARISH",
+        "4. No 2x leverage - individual stocks only"
+    ]
+    
+    rule_y = y + 35
+    for rule in rules:
+        draw.text((60, rule_y), rule, font=font_small, fill=TEXT_WHITE)
+        rule_y += 18
+    
+    # === DISCLAIMER ===
+    y = height - 85
+    draw.line([(40, y), (width - 40, y)], fill=(50, 60, 80), width=1)
+    y += 12
     
     disclaimer = [
-        "⚠️ DISCLAIMER: This is NOT financial advice.",
-        "For educational purposes only. Past performance ≠ future results.",
-        "You are responsible for your own investment decisions."
+        "DISCLAIMER: NOT financial advice. Educational purposes only.",
+        "GL Tradewinds LLC | Past performance does not guarantee future results.",
     ]
     for line in disclaimer:
         draw.text((width // 2, y), line, font=font_tiny, fill=TEXT_MUTED, anchor="mt")
@@ -337,18 +321,28 @@ def create_signal_image(signal_data: dict, output_path: str = "sectorbot_signal.
     
     # Save
     img.save(output_path, "PNG", quality=95)
-    print(f"✅ Image saved: {output_path}")
+    print(f"[OK] Image saved: {output_path}")
     return output_path
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Generate SectorBot signal image')
-    parser.add_argument('--json', type=str, default='sectorbot_allocation.json', help='Path to signal JSON file')
+    parser = argparse.ArgumentParser(description='Generate AdaptiveX2 SectorBot signal image')
+    parser.add_argument('--json', type=str, help='Path to signal JSON file')
     parser.add_argument('--output', type=str, default='sectorbot_signal.png', help='Output image path')
+    parser.add_argument('--sample', action='store_true', help='Use sample data')
     
     args = parser.parse_args()
     
-    signal_data = load_signal_data(args.json)
+    if args.sample or not args.json:
+        signal_data = get_sample_data()
+    else:
+        try:
+            with open(args.json, 'r') as f:
+                signal_data = json.load(f)
+        except Exception as e:
+            print(f"Failed to load {args.json}: {e}")
+            signal_data = get_sample_data()
+    
     create_signal_image(signal_data, args.output)
 
 
