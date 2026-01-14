@@ -290,13 +290,14 @@ All 4 conditions must pass for a stock to qualify:
 
 ```
 SectorSBITrader/
-├── main.py                 # Entry point with CLI
-├── strategy.py             # AdaptiveX2SectorBot class
-├── sbi_calculator.py       # SBI calculation with volatility categories
-├── config.py               # Sector mappings and configuration
-├── schwab_auth.py          # Schwab API authentication
-├── sectorbot_signals.json  # Latest signals output
-└── sectorbot_state.json    # Position tracking (if enabled)
+├── main.py                      # Entry point with CLI
+├── strategy.py                  # AdaptiveX2SectorBot class
+├── sbi_calculator.py            # SBI calculation with volatility categories
+├── config.py                    # Sector mappings and configuration
+├── generate_sectorbot_image_v2.py  # Patreon PNG image generator
+├── schwab_auth.py               # Schwab API authentication
+├── sectorbot_signals.json       # Latest signals output
+└── sectorbot_state.json         # Position tracking (if enabled)
 ```
 
 ## ⚙️ Configuration
@@ -371,6 +372,116 @@ $ python main.py
 ## ⚠️ Disclaimer
 
 This software is for educational purposes only. Trading involves substantial risk of loss. Past performance does not guarantee future results. Always do your own research.
+
+---
+
+## 🎨 Patreon Signal Image Generation
+
+Generate professional PNG images for sharing signals on Patreon:
+
+### Setup
+
+```bash
+pip install pillow
+```
+
+### Usage
+
+```bash
+# Generate sample image (for testing)
+python generate_sectorbot_image_v2.py --sample
+
+# Generate from JSON signal file
+python generate_sectorbot_image_v2.py --json sectorbot_signals.json
+
+# Custom output filename
+python generate_sectorbot_image_v2.py --json sectorbot_signals.json --output daily_signal.png
+```
+
+### JSON Input Format
+
+The image generator expects a JSON file with this structure:
+
+```json
+{
+  "generated_at": "2026-01-14T12:00:00",
+  "parent_signals": [
+    {
+      "parent": "BTC-USD",
+      "name": "Bitcoin", 
+      "psar_status": "BULLISH",
+      "psar_trend_days": 12,
+      "psar_gap": 9.23
+    },
+    {
+      "parent": "GLD",
+      "name": "Gold",
+      "psar_status": "BULLISH", 
+      "psar_trend_days": 45,
+      "psar_gap": 3.5
+    }
+  ],
+  "entry_signals": [
+    {
+      "ticker": "XOM",
+      "parent": "XLE",
+      "sbi": 10,
+      "rsi": 69
+    }
+  ],
+  "exit_signals": [
+    {
+      "ticker": "NVDA",
+      "parent": "SMH",
+      "reason": "Parent turned bearish"
+    }
+  ],
+  "rotation_signals": [
+    {
+      "from_ticker": "MARA",
+      "to_ticker": "CLSK",
+      "parent": "BTC-USD"
+    }
+  ],
+  "target_allocation": [
+    {
+      "ticker": "MSTR",
+      "parent": "BTC-USD",
+      "weight": 0.15,
+      "sbi": 9,
+      "entry_date": "2025-01-02"
+    }
+  ]
+}
+```
+
+### Output
+
+The generator creates an 850x1100px PNG image with:
+- **Header**: "AdaptiveX2 SectorBot" with date
+- **Parent Signals**: Visual cards showing PSAR status (🟢/🔴) + trend days
+- **Current Positions**: Table with ticker, parent, weight%, SBI, entry date
+- **Entry Signals**: New BUY recommendations
+- **Rotation Signals**: Within-sector swaps
+- **Exit Signals**: SELL recommendations
+- **Strategy Rules**: Quick reference box
+- **Disclaimer**: Footer
+
+### GitHub Actions Integration
+
+Add to your workflow to auto-generate and upload:
+
+```yaml
+- name: Generate Patreon Image
+  run: |
+    python main.py --json > sectorbot_signals.json
+    python generate_sectorbot_image_v2.py --json sectorbot_signals.json --output signal.png
+
+- name: Upload to Patreon (example)
+  run: |
+    # Your upload script here
+    curl -X POST "https://your-upload-endpoint" -F "file=@signal.png"
+```
 
 ---
 
