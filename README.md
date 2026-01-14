@@ -1,340 +1,377 @@
-# SectorSBITrader 🎯
+# AdaptiveX2 SectorBot 🤖📈
 
-A sector rotation trading strategy that uses **parent signals** (sector ETFs, BTC, GLD, etc.) to determine timing, then **drills into individual stocks** using the **Signal Bullish Index (SBI)** for position selection.
+A sector rotation trading system that combines **parent ETF PSAR signals** with **child stock SBI scoring** to find high-quality entries in bullish sectors.
 
-## 🚀 Quick Start
-
-```bash
-# Install dependencies
-pip install yfinance pandas numpy pillow
-
-# Run daily signal generation
-python main.py
-
-# Scan all sectors
-python main.py --scan
-
-# Scan specific sector
-python main.py --sector BTC-USD
-
-# Run backtest
-python main.py --backtest --start 2023-01-01 --end 2024-12-31
-
-# List available sectors
-python main.py --list-sectors
-
-# Generate Patreon signal image
-python generate_sectorbot_image.py
-```
-
-## 📊 Strategy Overview
-
-### Core Concept
+## 🎯 Strategy Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                      STRATEGY FLOW                               │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  1. CHECK PARENT SIGNAL (Sector ETF / Asset)                    │
-│     └── Is BTC-USD > PSAR? → Bullish                           │
-│     └── Is XLK > PSAR? → Bullish                               │
-│                                                                 │
-│  2. IF PARENT BULLISH → SCAN CHILD STOCKS                       │
-│     └── Calculate SBI (0-10) for each stock                    │
-│     └── SBI = 10 → Enter with 2x weight                        │
-│     └── SBI = 9  → Enter with 1x weight                        │
-│     └── SBI < 9  → No entry                                    │
-│                                                                 │
-│  3. LOCK WEIGHTS UNTIL PARENT TURNS BEARISH                     │
-│     └── Keep 2x weight even if SBI drops to 7                  │
-│     └── Don't add more even if SBI stays at 10                 │
-│                                                                 │
-│  4. EXIT WHEN PARENT TURNS BEARISH                              │
-│     └── Exit ALL positions in that sector                      │
-│     └── Don't exit on individual stock signals                 │
-│                                                                 │
+│  PARENT SIGNAL (Sector/Asset)     CHILD SIGNAL (Individual Stock)│
+│  ─────────────────────────────    ───────────────────────────────│
+│  BTC-USD PSAR Bullish?            MSTR SBI ≥ 9?                  │
+│         │                                │                        │
+│         ▼                                ▼                        │
+│    ┌─────────┐                    ┌─────────────┐                │
+│    │ Sector  │───── YES ─────────▶│ Stock       │                │
+│    │ ACTIVE  │                    │ Qualifies   │──▶ BUY MSTR    │
+│    └─────────┘                    └─────────────┘                │
+│         │                                │                        │
+│        NO                               NO                        │
+│         │                                │                        │
+│         ▼                                ▼                        │
+│    EXIT all                         WAIT for                      │
+│    sector stocks                    better setup                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Signal Bullish Index (SBI)
+### Key Principles
 
-A 10-point scoring system measuring how bullish a stock is:
+1. **Parent determines exposure** - Only buy stocks when their sector ETF/crypto is PSAR bullish
+2. **SBI filters entries** - Only buy stocks with SBI ≥ 9 (high-quality setups)
+3. **Volatility-adjusted** - Crypto/meme stocks use relaxed ATR thresholds
+4. **Exit on parent breakdown** - Sell all sector stocks when parent turns bearish
 
-| # | Indicator | Bullish Condition |
-|---|-----------|-------------------|
-| 1 | SMA(20) | Price > SMA(20) |
-| 2 | SMA(50) | Price > SMA(50) |
-| 3 | SMA(200) | Price > SMA(200) |
-| 4 | RSI(14) | RSI > 50 |
-| 5 | RSI(14) | RSI < 70 (not overbought) |
-| 6 | MACD | MACD > Signal Line |
-| 7 | MACD Histogram | Histogram > 0 |
-| 8 | PSAR | Price > PSAR |
-| 9 | Momentum | 20-day return > 0% |
-| 10 | Volume | Volume > 20-day avg |
+## 📊 SBI (Signal Bullish Index) Explained
 
-**Entry Requirements:**
-- SBI = 10 → 2x weight multiplier
-- SBI = 9 → 1x weight multiplier
-- SBI < 9 → No entry
+SBI measures **entry quality** on a 0-10 scale. It's NOT just "is it going up?" but "is this a GOOD time to buy?"
+
+### SBI Components
+
+| Component | What It Measures | Score Range |
+|-----------|------------------|-------------|
+| **ATR Score** | Volatility (lower = better) | 0-10 |
+| **Slope Score** | PSAR gap widening/narrowing | 0-10 |
+| **ADX Score** | Trend strength | 0-10 |
+
+### SBI Formula (varies by days in trend)
+
+```
+Day 1:     100% ATR Score
+Day 2:     80% ATR + 20% Slope
+Day 3:     60% ATR + 40% Slope
+Days 4-5:  40% ATR + 40% Slope + 20% ADX
+Days 6+:   40% Slope + 30% ADX + 30% ATR
+
+PRSI(4) Bearish Penalty: -2 points (Days 3+)
+```
+
+### ATR Score (Volatility)
+
+Lower ATR% = Higher score (less volatile = safer entry)
+
+| ATR% (Day 6+) | Score | Interpretation |
+|---------------|-------|----------------|
+| < 2% | 10 | Very stable |
+| < 2.5% | 9 | Stable |
+| < 3% | 8 | Good |
+| < 4% | 7 | Acceptable |
+| < 5% | 6 | Borderline |
+| ≥ 5% | 4 | Too volatile |
+
+### Slope Score (Gap Direction)
+
+Positive slope = PSAR gap widening = trend strengthening
+
+| Gap Slope | Score | Interpretation |
+|-----------|-------|----------------|
+| ≥ +2 | 10 | Strongly widening |
+| ≥ +1 | 9 | Widening |
+| ≥ +0.5 | 8 | Slightly widening |
+| ≥ -0.5 | 7 | Stable |
+| ≥ -1 | 5 | Slightly narrowing |
+| ≥ -2 | 3 | Narrowing |
+| < -2 | 1 | Strongly narrowing |
+
+### ADX Score (Trend Strength)
+
+ADX measures HOW STRONG a trend is (not direction).
+
+| ADX Value | Score | Interpretation |
+|-----------|-------|----------------|
+| ≥ 40 | 10 | Very strong trend |
+| ≥ 30 | 8 | Strong trend |
+| ≥ 25 | 6 | Moderate trend |
+| ≥ 20 | 4 | Weak trend |
+| < 20 | 2 | No trend / Choppy |
+
+**How ADX is calculated:**
+```
+1. +DM = Today's High - Yesterday's High (if positive & > -DM)
+2. -DM = Yesterday's Low - Today's Low (if positive & > +DM)
+3. TR = True Range
+4. +DI = 100 × (Smoothed +DM / Smoothed TR)
+5. -DI = 100 × (Smoothed -DM / Smoothed TR)
+6. DX = 100 × |+DI - -DI| / (+DI + -DI)
+7. ADX = 14-period EMA of DX
+```
+
+## 🔥 Volatility Categories (NEW)
+
+Crypto and meme stocks are inherently more volatile. The SBI calculator now adjusts ATR thresholds by category:
+
+| Category | Tickers | ATR Multiplier | Effect |
+|----------|---------|----------------|--------|
+| **Crypto** | MSTR, MARA, COIN, RIOT, CLSK, HOOD, etc. | **2.0x** | 6.5% ATR → 3.25% adjusted |
+| **Meme** | GME, AMC, PLTR, SOFI, NIO, etc. | **1.75x** | Higher vol accepted |
+| **High Vol** | AG, HL, MRNA, TQQQ, etc. | **1.5x** | Junior miners, biotech |
+| **Standard** | AAPL, MSFT, etc. | **1.0x** | Normal thresholds |
+
+### Example: MSTR Before/After
+
+**Before (Standard thresholds):**
+- Raw ATR: 6.53% → Score 4/10 (penalized)
+- SBI = 7
+
+**After (Crypto 2x multiplier):**
+- Adjusted ATR: 6.53% ÷ 2.0 = 3.27%
+- Adjusted ATR → Score 7-8/10
+- SBI = 8
+
+## 🚀 Usage
+
+### Basic Commands
+
+```bash
+# Run daily signals (default rotation mode)
+python main.py
+
+# Different strategy modes
+python main.py --mode rotation          # Rotate weak stocks (default)
+python main.py --mode parent_based      # Hold through weakness
+python main.py --mode weighted_rotation # Rotation + sector weighting
+
+# Account sizes
+python main.py                          # Small account (10 positions, 2/sector)
+python main.py --large                  # Large account (20 positions, 5/sector)
+
+# Output options
+python main.py --json                   # JSON output only
+python main.py --no-save                # Don't save to file
+```
+
+### Sector Diagnosis (NEW) 🔬
+
+Diagnose why stocks in a sector aren't qualifying:
+
+```bash
+# Diagnose Bitcoin sector
+python main.py --sector BTC-USD
+
+# Diagnose other sectors
+python main.py --sector GLD            # Gold miners
+python main.py --sector XLK            # Technology
+python main.py --sector SMH            # Semiconductors
+
+# Short aliases work too
+python main.py -s BTC                   # Same as BTC-USD
+python main.py -s ETH                   # Same as ETH-USD
+```
+
+### Diagnosis Output Example
+
+```
+======================================================================
+🔍 SECTOR DIAGNOSIS: BTC-USD (Bitcoin)
+======================================================================
+
+📊 PARENT SIGNAL: BTC-USD
+--------------------------------------------------
+   Status:  🟢 BULLISH
+   Price:   $97,624.50
+   PSAR:    $89,372.01
+   Gap:     +9.23%
+
+📋 CHILD STOCK ANALYSIS
+----------------------------------------------------------------------
+Ticker    SBI     PSAR    RSI Status                   
+----------------------------------------------------------------------
+MSTR        7   +15.9%     55 ❌ SBI=7<9                
+RIOT        8   +22.7%     68 ❌ SBI=8<9                
+HOOD      ⭐10    +7.8%     48 ❌ RSI=48<50              
+
+🔬 DETAILED SBI BREAKDOWN
+──────────────────────────────────────────────────
+📊 MSTR [CRYPTO]: SBI = 7/10
+──────────────────────────────────────────────────
+   Days in trend: 8
+   Formula (Day 8): 40% Slope + 30% ADX + 30% ATR
+
+   Component Scores:
+   ├─ ATR Score:   7/10  (Raw ATR% = 6.50% → Adjusted = 3.25%)
+   │    └─ CRYPTO stock: 2.0x ATR allowance
+   ├─ Slope Score: 10/10  (Gap Slope = +12.79)
+   │    └─ Positive slope = gap widening = bullish
+   └─ ADX Score:   6/10  (ADX = 26.2)
+        └─ Higher ADX = stronger trend
+
+   Calculation: SBI = 0.4×10 + 0.3×6 + 0.3×7 = 7.9
+
+   🔍 Why SBI is low:
+      • ADX score low (6) - moderate trend strength
+```
+
+### Live Trading (Schwab)
+
+```bash
+# Dry run (test without executing)
+python main.py --dry-run
+
+# Live trading (with confirmation prompts)
+python main.py --live
+
+# Automated (skip prompts)
+python main.py --live --auto-confirm
+```
+
+### Help
+
+```bash
+python main.py --help                   # Show all options
+python main.py --usage                  # Show detailed usage examples
+```
+
+## 📋 Entry Criteria
+
+All 4 conditions must pass for a stock to qualify:
+
+| # | Criterion | Check |
+|---|-----------|-------|
+| 1 | Parent PSAR Bullish | Sector ETF/crypto price > PSAR |
+| 2 | Stock SBI ≥ 9 | High-quality setup |
+| 3 | Stock PSAR Bullish | Stock price > its PSAR |
+| 4 | Stock RSI > 50 | Momentum confirmation |
+
+## 🏗️ Sector Mappings
+
+### Crypto
+| Parent | Children |
+|--------|----------|
+| BTC-USD | MSTR, MARA, CLSK, RIOT, COIN, HOOD, BTBT, HUT, CIFR, WULF |
+| ETH-USD | COIN, HOOD, SQ, PYPL |
+| SOL-USD | (Solana ETFs when available) |
+
+### Precious Metals
+| Parent | Children |
+|--------|----------|
+| GLD | GDX, NEM, GOLD, AEM, KGC, AU, HMY, GFI, WPM, FNV |
+| SLV | PAAS, AG, HL, CDE, MAG, FSM |
+
+### S&P 500 Sectors
+| Parent | Category | Example Children |
+|--------|----------|------------------|
+| XLK | Technology | AAPL, MSFT, NVDA, AVGO, CRM |
+| XLF | Financials | JPM, BAC, WFC, GS, MS |
+| XLV | Healthcare | UNH, JNJ, PFE, ABBV, MRK |
+| XLE | Energy | XOM, CVX, COP, EOG, SLB |
+| XLI | Industrials | CAT, HON, UNP, BA, RTX |
+| XLY | Cons. Disc. | AMZN, TSLA, HD, MCD, NKE |
+| XLP | Cons. Staples | PG, KO, PEP, COST, WMT |
+| XLU | Utilities | NEE, DUK, SO, D, AEP |
+| XLC | Communications | META, GOOGL, NFLX, DIS, VZ |
+| XLRE | Real Estate | AMT, PLD, CCI, EQIX, SPG |
+| XLB | Materials | LIN, APD, SHW, FCX, NEM |
+
+### Industries & International
+| Parent | Category |
+|--------|----------|
+| SMH | Semiconductors |
+| IBB | Biotech |
+| KRE | Regional Banks |
+| XHB | Homebuilders |
+| OIH | Oil Services |
+| ITA | Aerospace/Defense |
+| FXI | China |
+| EWJ | Japan |
+| INDA | India |
+| EWZ | Brazil |
+| EEM | Emerging Markets |
 
 ## 📁 Project Structure
 
 ```
 SectorSBITrader/
-├── config.py                    # Configuration and sector mappings
-├── sbi_calculator.py            # SBI calculation logic
-├── strategy.py                  # Main strategy implementation
-├── data_fetcher.py              # Data retrieval (yfinance)
-├── backtester.py                # Historical simulation
-├── main.py                      # CLI entry point
-├── generate_sectorbot_image.py  # Patreon PNG generator
-└── README.md                    # This file
+├── main.py                 # Entry point with CLI
+├── strategy.py             # AdaptiveX2SectorBot class
+├── sbi_calculator.py       # SBI calculation with volatility categories
+├── config.py               # Sector mappings and configuration
+├── schwab_auth.py          # Schwab API authentication
+├── sectorbot_signals.json  # Latest signals output
+└── sectorbot_state.json    # Position tracking (if enabled)
 ```
-
-## 🎨 Patreon Signal Image Generation
-
-Generate a professional PNG image of daily signals for Patreon subscribers.
-
-### Usage
-
-```bash
-# Generate image from live scan (runs strategy first)
-python generate_sectorbot_image.py
-
-# Generate from existing JSON file
-python generate_sectorbot_image.py --json sectorbot_allocation.json
-
-# Custom output filename
-python generate_sectorbot_image.py --output daily_signal_2025-01-14.png
-
-# Use sample data for testing
-python generate_sectorbot_image.py --sample
-```
-
-### What the Image Shows
-
-The generated PNG includes:
-
-1. **Parent Signals (PSAR)** - Visual cards showing which sectors are bullish/bearish
-   - Green border = Parent PSAR is BULLISH (sector active)
-   - Red border = Parent PSAR is BEARISH (sector inactive)
-   - Shows trend duration (e.g., "+ Day 12")
-
-2. **Current Positions** - Table of all held stocks with:
-   - Ticker symbol
-   - Parent sector (BTC-USD, GLD, XLK, etc.)
-   - Portfolio weight %
-   - SBI score at entry
-   - Entry date
-
-3. **Entry Signals** - New BUY recommendations
-   - Stocks with SBI=10 in newly bullish sectors
-
-4. **Rotation Signals** - Within-sector swaps
-   - When a better SBI=10 stock appears in same sector
-
-5. **Exit Signals** - SELL recommendations
-   - All positions in sectors where parent turned bearish
-
-6. **Strategy Rules** - Quick reference for subscribers
-
-7. **Disclaimer** - Required legal notice
-
-### Automated Generation (GitHub Actions)
-
-Add to your workflow to generate and upload the image automatically:
-
-```yaml
-- name: Generate Patreon Signal Image
-  run: |
-    python main.py --output sectorbot_allocation.json
-    python generate_sectorbot_image.py --json sectorbot_allocation.json --output signal.png
-
-- name: Upload Signal Image
-  uses: actions/upload-artifact@v4
-  with:
-    name: patreon-signal
-    path: signal.png
-```
-
-### JSON Data Format
-
-The image generator expects JSON in this format:
-
-```json
-{
-  "generated_at": "2025-01-14T09:30:00",
-  "parent_signals": [
-    {"parent": "BTC-USD", "name": "Bitcoin", "psar_status": "BULLISH", "psar_trend_days": 12},
-    {"parent": "GLD", "name": "Gold", "psar_status": "BULLISH", "psar_trend_days": 8},
-    {"parent": "XLK", "name": "Technology", "psar_status": "BEARISH", "psar_trend_days": 3}
-  ],
-  "target_allocation": [
-    {"ticker": "MSTR", "parent": "BTC-USD", "weight": 0.15, "sbi": 10, "entry_date": "2025-01-02"},
-    {"ticker": "GFI", "parent": "GLD", "weight": 0.10, "sbi": 10, "entry_date": "2025-01-05"}
-  ],
-  "entry_signals": [
-    {"ticker": "ABBV", "parent": "XLV", "sbi": 10}
-  ],
-  "rotation_signals": [
-    {"from_ticker": "MARA", "to_ticker": "CLSK", "parent": "BTC-USD"}
-  ],
-  "exit_signals": [
-    {"ticker": "NVDA", "parent": "SMH", "reason": "Parent turned bearish"}
-  ]
-}
-```
-
-## 🗂️ Sector Mappings
-
-### Crypto (Parent: BTC-USD, ETH-USD, SOL-USD)
-| Parent | Child Stocks |
-|--------|--------------|
-| BTC-USD | MSTR, MARA, XXI, MTPLF, COIN, CLSK |
-| ETH-USD | BMNR, SBET, FETH |
-| SOL-USD | FSOL |
-
-### Precious Metals (Parent: GLD, SLV)
-| Parent | Child Stocks |
-|--------|--------------|
-| GLD | GDX, AU, KGC, HMY, AEM, GFI, NEM, GOLD, WPM, FNV |
-| SLV | PAAS, AG, HL, CDE, MAG, FSM |
-
-### S&P 500 Sectors
-| Parent | Description | Sample Stocks |
-|--------|-------------|---------------|
-| XLK | Technology | AAPL, MSFT, NVDA, AVGO... |
-| XLF | Financials | JPM, V, MA, BAC... |
-| XLV | Healthcare | LLY, UNH, JNJ, ABBV... |
-| XLY | Consumer Disc | AMZN, TSLA, HD, MCD... |
-| XLC | Comm Services | META, GOOGL, NFLX, DIS... |
-| XLI | Industrials | GE, CAT, RTX, UNP... |
-| XLP | Staples | PG, KO, PEP, COST... |
-| XLE | Energy | XOM, CVX, COP, SLB... |
-| XLU | Utilities | NEE, SO, DUK, CEG... |
-| XLRE | Real Estate | PLD, AMT, EQIX, WELL... |
-| XLB | Materials | LIN, SHW, APD, FCX... |
-
-### Industries
-| Parent | Description | Sample Stocks |
-|--------|-------------|---------------|
-| SMH | Semiconductors | NVDA, TSM, AVGO, AMD... |
-| IBB | Biotech | VRTX, AMGN, GILD, REGN... |
-| KRE | Regional Banks | HBAN, RF, CFG, KEY... |
-| XHB | Homebuilders | DHI, LEN, NVR, PHM... |
-| URA | Nuclear/Uranium | CCJ, CEG, VST, SMR... |
-
-### International
-| Parent | Country | Sample Stocks |
-|--------|---------|---------------|
-| FXI | China | BABA, JD, PDD, BIDU... |
-| EWJ | Japan | TM, SONY, MUFG... |
-| INDA | India | INFY, WIT, HDB, IBN... |
-| EWZ | Brazil | VALE, PBR, ITUB... |
-| EEM | Emerging | TSM, BABA, VALE... |
 
 ## ⚙️ Configuration
 
-Edit `config.py` to customize:
-
-```python
-@dataclass
-class StrategyConfig:
-    # SBI Entry Thresholds
-    sbi_10_weight: float = 2.0    # Weight for SBI=10
-    sbi_9_weight: float = 1.0     # Weight for SBI=9
-    
-    # Position Management
-    max_stocks_per_sector: int = 10
-    max_total_positions: int = 50
-    
-    # Sector Allocations
-    sector_allocations = {
-        'crypto': 0.25,           # 25% to crypto
-        'precious_metals': 0.20,  # 20% to gold/silver
-        'sp500_sectors': 0.30,    # 30% to S&P sectors
-        'industries': 0.15,       # 15% to industries
-        'international': 0.10,    # 10% to international
-    }
-```
-
-## 🔄 Workflow Example
-
-### Day 1: BTC-USD turns bullish
-```
-Parent Signal: BTC-USD > PSAR → BULLISH
-
-Scanning child stocks:
-  MSTR: SBI = 10 → ENTER (2x weight)
-  COIN: SBI = 9  → ENTER (1x weight)
-  MARA: SBI = 7  → SKIP
-  CLSK: SBI = 8  → SKIP
-```
-
-### Day 15: Market volatile but BTC still bullish
-```
-Parent Signal: BTC-USD still > PSAR → HOLD
-
-Current positions:
-  MSTR: Keep 2x weight (even if SBI dropped to 8)
-  COIN: Keep 1x weight
-```
-
-### Day 30: BTC-USD turns bearish
-```
-Parent Signal: BTC-USD < PSAR → EXIT ALL
-
-Action: Sell MSTR, COIN
-       (Exit entire Bitcoin sector)
-```
-
-## 🔐 Schwab Integration
-
-Set environment variables:
+### Environment Variables
 
 ```bash
-export SCHWAB_SBI_APP_KEY="your_app_key"
-export SCHWAB_SBI_APP_SECRET="your_app_secret"
-export SCHWAB_SBI_ACCOUNT_HASH="your_account_hash"
+# Schwab API (for live trading)
+export SCHWAB_SECTORBOT_APP_KEY='your_app_key'
+export SCHWAB_SECTORBOT_APP_SECRET='your_app_secret'
+export SCHWAB_SECTORBOT_ACCOUNT_HASH='your_account_hash'
 ```
 
-## 📈 Backtest
+### Strategy Modes
+
+| Mode | Description | Trading Frequency |
+|------|-------------|-------------------|
+| `rotation` | Rotate out of weak stocks | Higher (more signals) |
+| `parent_based` | Only exit on parent breakdown | Lower (fewer trades) |
+| `weighted_rotation` | Rotation + sector weighting | Medium |
+
+## 🔄 Workflow
+
+### Daily Signal Generation
+
+1. Fetch price data for all parents and children
+2. Calculate parent PSAR status (bullish/bearish)
+3. For each bullish parent:
+   - Scan children for SBI ≥ 9
+   - Check RSI > 50 and stock PSAR bullish
+4. Generate entry/exit/rotation signals
+5. Output to console and JSON file
+
+### Trade Execution (Schwab)
+
+1. Run `--dry-run` first to preview trades
+2. Run `--live` to execute with confirmation
+3. Run `--live --auto-confirm` for automation
+
+## 📈 Example Session
 
 ```bash
-# Full backtest
-python main.py --backtest
+$ python main.py
 
-# Custom date range
-python main.py --backtest --start 2023-01-01 --end 2024-12-31
+======================================================================
+🤖 ADAPTIVEX2 SECTORBOT - SMALL (10 pos)
+   Time: 2026-01-14 12:00:00
+   Mode: ROTATION
+======================================================================
+
+📥 Fetching data for 330 tickers...
+✅ Loaded 330 tickers
+
+======================================================================
+📊 SIGNALS
+======================================================================
+
+🟢 ENTRY (3):
+   BUY  XOM    (XLE) - SBI=10, RSI=69
+   BUY  EOG    (XLE) - SBI=10, RSI=62
+   BUY  NEM    (GLD) - SBI=9, RSI=72
+
+📋 SUMMARY
+----------------------------------------------------------------------
+   Active Sectors:    26
+   Entry Signals:     3
+   Max Positions:     10
+
+📁 Saved to: sectorbot_signals.json
 ```
 
-Output includes:
-- Total Return & CAGR
-- Max Drawdown
-- Sharpe & Sortino Ratios
-- Win Rate & Profit Factor
-- Comparison to SPY buy & hold
+## ⚠️ Disclaimer
 
-## 🔗 Related Projects
-
-- **AdaptiveX2** - ETF-based momentum strategy with 2x leverage
-- This project extends the concept to individual stocks without leverage
-
-## 📝 Key Differences from AdaptiveX2
-
-| Feature | AdaptiveX2 | SectorSBITrader |
-|---------|------------|-----------------|
-| Instruments | ETFs (QLD, BITU...) | Individual stocks |
-| Signal Source | Direct PSAR | Parent ETF PSAR |
-| Entry Criteria | PSAR bullish | Parent bullish + SBI ≥ 9 |
-| Exit Rule | Individual PSAR | Parent turns bearish |
-| Leverage | 2x ETFs | 1x stocks (no leverage) |
-| Weight Logic | Momentum-based | SBI score (2x/1x) |
+This software is for educational purposes only. Trading involves substantial risk of loss. Past performance does not guarantee future results. Always do your own research.
 
 ---
 
-*Built as a separate trading bot from AdaptiveX2*
-*Designed for a dedicated Schwab account*
-*GL Tradewinds LLC*
+**Built with 🧠 by Gary & Claude**

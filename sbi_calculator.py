@@ -17,12 +17,86 @@ Formula varies by days since PSAR cross:
 - Days 6+: 40% Slope + 30% ADX + 30% ATR
 
 PRSI(4) bearish applies -2 penalty for Days 3+ (momentum warning)
+
+VOLATILITY CATEGORIES:
+- Standard stocks: Normal ATR thresholds
+- Crypto/Meme stocks: 2x ATR thresholds (these are inherently more volatile)
 """
 
 import pandas as pd
 import numpy as np
 from typing import Dict, Tuple, Optional
 from dataclasses import dataclass
+
+
+# =============================================================================
+# VOLATILITY CATEGORY DEFINITIONS
+# =============================================================================
+
+# Crypto-related stocks (Bitcoin, Ethereum proxies)
+CRYPTO_TICKERS = {
+    'MSTR', 'MARA', 'CLSK', 'RIOT', 'COIN', 'HOOD', 'BTBT', 'HUT', 'CIFR', 
+    'WULF', 'CORZ', 'BITF', 'HIVE', 'ARBK', 'GREE',  # BTC miners/proxies
+    'SQ', 'PYPL',  # Crypto-exposed fintech
+    'IBIT', 'BITU', 'FBTC', 'GBTC',  # Bitcoin ETFs
+    'FETH', 'ETHU', 'ETHE',  # Ethereum ETFs
+    'BSOL', 'SOLT', 'SOLQ',  # Solana ETFs
+}
+
+# Meme stocks (high retail interest, volatile)
+MEME_TICKERS = {
+    'GME', 'AMC', 'BBBY', 'BB', 'NOK', 'PLTR', 'SOFI', 'WISH', 'CLOV',
+    'SPCE', 'TLRY', 'SNDL', 'NIO', 'LCID', 'RIVN', 'FFIE',
+    'DWAC', 'PHUN', 'MARK', 'MULN', 'APRN', 'BBIG',
+}
+
+# High-volatility sectors (biotech, junior miners, etc.)
+HIGH_VOL_TICKERS = {
+    # Junior gold/silver miners
+    'AG', 'HL', 'CDE', 'FSM', 'MAG', 'EXK', 'PAAS', 'SVM',
+    # Biotech
+    'MRNA', 'BNTX', 'NVAX',
+    # Leveraged ETFs (already volatile)
+    'TQQQ', 'SQQQ', 'UPRO', 'SPXU', 'LABU', 'LABD',
+    'NUGT', 'DUST', 'JNUG', 'JDST',
+}
+
+
+def get_volatility_category(ticker: str) -> str:
+    """
+    Determine the volatility category of a ticker.
+    
+    Returns:
+        'crypto' - Crypto-related stocks (2x ATR threshold)
+        'meme' - Meme stocks (1.75x ATR threshold)
+        'high_vol' - High volatility sectors (1.5x ATR threshold)
+        'standard' - Normal stocks (1x ATR threshold)
+    """
+    ticker_upper = ticker.upper()
+    
+    if ticker_upper in CRYPTO_TICKERS:
+        return 'crypto'
+    elif ticker_upper in MEME_TICKERS:
+        return 'meme'
+    elif ticker_upper in HIGH_VOL_TICKERS:
+        return 'high_vol'
+    else:
+        return 'standard'
+
+
+def get_atr_multiplier(category: str) -> float:
+    """
+    Get the ATR threshold multiplier for a volatility category.
+    
+    Higher multiplier = more lenient ATR scoring (accepts higher volatility)
+    """
+    multipliers = {
+        'crypto': 2.0,      # Crypto stocks can have 2x the ATR and still score well
+        'meme': 1.75,       # Meme stocks get 1.75x allowance
+        'high_vol': 1.5,    # High-vol sectors get 1.5x allowance
+        'standard': 1.0,    # Normal stocks use base thresholds
+    }
+    return multipliers.get(category, 1.0)
 
 
 @dataclass
@@ -36,6 +110,8 @@ class SBIResult:
     prsi_fast_bearish: bool
     is_broken: bool
     components: Dict[str, int]  # Individual component scores
+    volatility_category: str = 'standard'  # NEW: Track category used
+    atr_multiplier: float = 1.0  # NEW: Track multiplier used
 
 
 # =============================================================================
@@ -307,138 +383,76 @@ def calculate_rsi_array(close: np.ndarray, period: int = 14) -> np.ndarray:
     gains = np.where(delta > 0, delta, 0)
     losses = np.where(delta < 0, -delta, 0)
     
-    # First average (simple)
+    # Initial averages (SMA)
     avg_gain = np.mean(gains[:period])
     avg_loss = np.mean(losses[:period])
     
-    # First RSI value
-    if avg_loss > 0:
+    if avg_loss == 0:
+        rsi[period] = 100
+    else:
         rs = avg_gain / avg_loss
         rsi[period] = 100 - (100 / (1 + rs))
-    else:
-        rsi[period] = 100
     
-    # Subsequent values using EMA
-    for i in range(period, length - 1):
-        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
-        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+    # EMA for subsequent values
+    for i in range(period + 1, length):
+        avg_gain = (avg_gain * (period - 1) + gains[i-1]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i-1]) / period
         
-        if avg_loss > 0:
-            rs = avg_gain / avg_loss
-            rsi[i + 1] = 100 - (100 / (1 + rs))
+        if avg_loss == 0:
+            rsi[i] = 100
         else:
-            rsi[i + 1] = 100
+            rs = avg_gain / avg_loss
+            rsi[i] = 100 - (100 / (1 + rs))
     
     return rsi
 
 
-def calculate_psar_on_series(series: pd.Series, af: float = 0.02, max_af: float = 0.2) -> Tuple[pd.Series, pd.Series]:
-    """Calculate PSAR on any series (used for PRSI)."""
-    values = series.values
-    length = len(series)
+def get_prsi_fast_bearish(df: pd.DataFrame, rsi_period: int = 14, psar_period: int = 4) -> bool:
+    """
+    Check if PRSI(4) is bearish (RSI is below its PSAR).
+    This is a momentum warning signal.
+    """
+    if len(df) < rsi_period + psar_period + 5:
+        return False
     
-    psar = np.zeros(length)
-    trend = np.zeros(length)
-    ep = np.zeros(length)
-    af_arr = np.zeros(length)
-    
-    # Find first valid value
-    start_idx = 0
-    for i in range(length):
-        if not np.isnan(values[i]):
-            start_idx = i
-            break
-    
-    if start_idx >= length - 1:
-        return pd.Series(index=series.index, dtype=float), pd.Series(index=series.index, dtype=float)
-    
-    trend[start_idx] = 1
-    psar[start_idx] = values[start_idx] * 0.98
-    ep[start_idx] = values[start_idx]
-    af_arr[start_idx] = af
-    
-    for i in range(start_idx + 1, length):
-        if np.isnan(values[i]):
-            psar[i] = psar[i-1]
-            trend[i] = trend[i-1]
-            ep[i] = ep[i-1]
-            af_arr[i] = af_arr[i-1]
-            continue
-        
-        prev_psar = psar[i-1]
-        prev_af = af_arr[i-1]
-        prev_ep = ep[i-1]
-        prev_trend = trend[i-1]
-        
-        if prev_trend == 1:  # Uptrend
-            new_psar = prev_psar + prev_af * (prev_ep - prev_psar)
-            
-            if values[i] < new_psar:
-                trend[i] = -1
-                psar[i] = prev_ep
-                ep[i] = values[i]
-                af_arr[i] = af
-            else:
-                trend[i] = 1
-                psar[i] = new_psar
-                if values[i] > prev_ep:
-                    ep[i] = values[i]
-                    af_arr[i] = min(prev_af + af, max_af)
-                else:
-                    ep[i] = prev_ep
-                    af_arr[i] = prev_af
-        else:  # Downtrend
-            new_psar = prev_psar + prev_af * (prev_ep - prev_psar)
-            
-            if values[i] > new_psar:
-                trend[i] = 1
-                psar[i] = prev_ep
-                ep[i] = values[i]
-                af_arr[i] = af
-            else:
-                trend[i] = -1
-                psar[i] = new_psar
-                if values[i] < prev_ep:
-                    ep[i] = values[i]
-                    af_arr[i] = min(prev_af + af, max_af)
-                else:
-                    ep[i] = prev_ep
-                    af_arr[i] = prev_af
-    
-    return pd.Series(psar, index=series.index), pd.Series(trend, index=series.index)
-
-
-def get_prsi_fast_bearish(df: pd.DataFrame) -> bool:
-    """Check if PRSI(4) is bearish (fast momentum warning)."""
     try:
-        rsi_fast = calculate_rsi(df['Close'], period=4)
-        prsi_psar, prsi_trend = calculate_psar_on_series(rsi_fast)
+        # Calculate RSI
+        rsi = calculate_rsi(df['Close'], rsi_period)
         
-        current_rsi = rsi_fast.iloc[-1]
-        current_prsi = prsi_psar.iloc[-1]
+        # Create DataFrame for PSAR calculation on RSI
+        rsi_df = pd.DataFrame({
+            'High': rsi,
+            'Low': rsi,
+            'Close': rsi
+        })
         
-        # PRSI(4) is bearish if RSI is below its PSAR
-        return current_rsi < current_prsi
+        # Calculate PSAR on RSI with faster settings
+        psar = calculate_psar(rsi_df, af=0.04, max_af=0.4)  # Faster PSAR for RSI
+        
+        current_rsi = rsi.iloc[-1]
+        current_psar = psar.iloc[-1]
+        
+        # Bearish if RSI is below its PSAR
+        return current_rsi < current_psar
     except:
         return False
 
 
 # =============================================================================
-# SBI CALCULATION (Main Function)
+# SBI CALCULATION - WITH VOLATILITY CATEGORY ADJUSTMENT
 # =============================================================================
 
-def calculate_sbi(
-    days_in_trend: int,
-    atr_percent: float,
-    gap_slope: float,
-    adx_value: float = 20,
-    prsi_fast_bearish: bool = False,
-    is_broken: bool = False
-) -> int:
+def calculate_sbi(days_in_trend: int, atr_percent: float, gap_slope: float, 
+                  adx_value: float, prsi_fast_bearish: bool = False, 
+                  is_broken: bool = False, ticker: str = None) -> int:
     """
-    Calculate Smart Buy Indicator (SBI) 0-10.
+    Calculate SBI (Smart Buy Indicator) score from 0-10.
     
-    Exact implementation from market-psar-scanner main.py
+    NOW WITH VOLATILITY CATEGORY ADJUSTMENT:
+    - Crypto stocks use 2x ATR thresholds (accepts higher volatility)
+    - Meme stocks use 1.75x ATR thresholds
+    - High-vol sectors use 1.5x ATR thresholds
+    - Standard stocks use normal thresholds
     
     Args:
         days_in_trend: Days since PSAR crossed
@@ -447,6 +461,7 @@ def calculate_sbi(
         adx_value: ADX trend strength (higher = stronger trend)
         prsi_fast_bearish: True if PRSI(4) is bearish (momentum warning)
         is_broken: True if stock recently broke DOWN through PSAR
+        ticker: Stock ticker for volatility category lookup (NEW)
     
     Returns:
         SBI score 0-10 (10 = best)
@@ -455,33 +470,40 @@ def calculate_sbi(
     if is_broken:
         return 0
     
-    # ATR score - day-specific thresholds
+    # Get volatility category and multiplier
+    category = get_volatility_category(ticker) if ticker else 'standard'
+    multiplier = get_atr_multiplier(category)
+    
+    # Adjust ATR percent by multiplier (divide to make thresholds more lenient)
+    adjusted_atr = atr_percent / multiplier
+    
+    # ATR score - day-specific thresholds (now using adjusted ATR)
     if days_in_trend == 1:
-        atr_score = 10 if atr_percent < 7 else 4
+        atr_score = 10 if adjusted_atr < 7 else 4
     elif days_in_trend == 2:
-        atr_score = 10 if atr_percent < 6 else 4
+        atr_score = 10 if adjusted_atr < 6 else 4
     elif days_in_trend in [3, 4]:
-        atr_score = 10 if atr_percent < 5 else 4
+        atr_score = 10 if adjusted_atr < 5 else 4
     elif days_in_trend == 5:
-        if atr_percent < 4:
+        if adjusted_atr < 4:
             atr_score = 10
-        elif atr_percent < 5:
+        elif adjusted_atr < 5:
             atr_score = 8
-        elif atr_percent < 6:
+        elif adjusted_atr < 6:
             atr_score = 6
         else:
             atr_score = 4
     else:
         # Days 6+ use gradual ATR scoring
-        if atr_percent < 2:
+        if adjusted_atr < 2:
             atr_score = 10
-        elif atr_percent < 2.5:
+        elif adjusted_atr < 2.5:
             atr_score = 9
-        elif atr_percent < 3:
+        elif adjusted_atr < 3:
             atr_score = 8
-        elif atr_percent < 4:
+        elif adjusted_atr < 4:
             atr_score = 7
-        elif atr_percent < 5:
+        elif adjusted_atr < 5:
             atr_score = 6
         else:
             atr_score = 4
@@ -538,12 +560,13 @@ def calculate_sbi(
     return max(0, min(10, sbi))
 
 
-def get_full_sbi_data(df: pd.DataFrame) -> Optional[SBIResult]:
+def get_full_sbi_data(df: pd.DataFrame, ticker: str = None) -> Optional[SBIResult]:
     """
     Calculate full SBI data for a stock.
     
     Args:
         df: DataFrame with OHLC + Volume data
+        ticker: Stock ticker for volatility category lookup (NEW)
     
     Returns:
         SBIResult with all components, or None if insufficient data
@@ -602,27 +625,33 @@ def get_full_sbi_data(df: pd.DataFrame) -> Optional[SBIResult]:
         # Get PRSI(4) status
         prsi_fast_bearish = get_prsi_fast_bearish(df)
         
-        # Calculate SBI
+        # Get volatility category
+        category = get_volatility_category(ticker) if ticker else 'standard'
+        multiplier = get_atr_multiplier(category)
+        adjusted_atr = atr_percent / multiplier
+        
+        # Calculate SBI with ticker for category adjustment
         sbi = calculate_sbi(
             days_in_trend=days_in_trend,
             atr_percent=atr_percent,
             gap_slope=gap_slope,
             adx_value=adx_value,
             prsi_fast_bearish=prsi_fast_bearish,
-            is_broken=is_broken
+            is_broken=is_broken,
+            ticker=ticker  # NEW: Pass ticker for category lookup
         )
         
-        # Calculate component scores for debugging
+        # Calculate component scores for debugging (using adjusted ATR)
         if days_in_trend == 1:
-            atr_score = 10 if atr_percent < 7 else 4
+            atr_score = 10 if adjusted_atr < 7 else 4
         elif days_in_trend == 2:
-            atr_score = 10 if atr_percent < 6 else 4
+            atr_score = 10 if adjusted_atr < 6 else 4
         elif days_in_trend in [3, 4]:
-            atr_score = 10 if atr_percent < 5 else 4
+            atr_score = 10 if adjusted_atr < 5 else 4
         elif days_in_trend == 5:
-            atr_score = 10 if atr_percent < 4 else (8 if atr_percent < 5 else (6 if atr_percent < 6 else 4))
+            atr_score = 10 if adjusted_atr < 4 else (8 if adjusted_atr < 5 else (6 if adjusted_atr < 6 else 4))
         else:
-            atr_score = 10 if atr_percent < 2 else (9 if atr_percent < 2.5 else (8 if atr_percent < 3 else (7 if atr_percent < 4 else (6 if atr_percent < 5 else 4))))
+            atr_score = 10 if adjusted_atr < 2 else (9 if adjusted_atr < 2.5 else (8 if adjusted_atr < 3 else (7 if adjusted_atr < 4 else (6 if adjusted_atr < 5 else 4))))
         
         if gap_slope >= 2: slope_score = 10
         elif gap_slope >= 1: slope_score = 9
@@ -652,7 +681,10 @@ def get_full_sbi_data(df: pd.DataFrame) -> Optional[SBIResult]:
                 'adx_score': adx_score,
                 'trend': trend,
                 'psar_gap': gap_percent,
-            }
+                'adjusted_atr': adjusted_atr,  # NEW: Include adjusted ATR
+            },
+            volatility_category=category,  # NEW
+            atr_multiplier=multiplier,  # NEW
         )
     
     except Exception as e:
@@ -684,10 +716,10 @@ def is_parent_bullish(df: pd.DataFrame) -> bool:
 if __name__ == "__main__":
     import yfinance as yf
     
-    print("SBI Calculator Test")
+    print("SBI Calculator Test - WITH VOLATILITY CATEGORIES")
     print("=" * 60)
     
-    test_tickers = ['MSTR', 'NVDA', 'AAPL', 'GDX', 'COIN']
+    test_tickers = ['MSTR', 'NVDA', 'AAPL', 'GDX', 'COIN', 'GME', 'AG']
     
     for ticker in test_tickers:
         try:
@@ -695,16 +727,20 @@ if __name__ == "__main__":
             df = stock.history(period="6mo")
             
             if len(df) > 20:
-                result = get_full_sbi_data(df)
+                result = get_full_sbi_data(df, ticker=ticker)  # Pass ticker!
                 if result:
-                    print(f"\n{ticker}:")
+                    cat = result.volatility_category
+                    mult = result.atr_multiplier
+                    adj_atr = result.atr_percent / mult
+                    
+                    print(f"\n{ticker} [{cat.upper()}] (ATR multiplier: {mult}x):")
                     print(f"  SBI: {result.sbi}/10")
                     print(f"  Days in trend: {result.days_in_trend}")
-                    print(f"  ATR%: {result.atr_percent:.2f}%")
+                    print(f"  Raw ATR%: {result.atr_percent:.2f}%")
+                    print(f"  Adjusted ATR%: {adj_atr:.2f}% (after {mult}x multiplier)")
+                    print(f"  ATR Score: {result.components['atr_score']}/10")
                     print(f"  Gap slope: {result.gap_slope:+.2f}")
                     print(f"  ADX: {result.adx_value:.1f}")
-                    print(f"  PRSI(4) bearish: {result.prsi_fast_bearish}")
-                    print(f"  Is broken: {result.is_broken}")
                     print(f"  Trend: {result.components['trend']}")
         except Exception as e:
             print(f"\n{ticker}: Error - {e}")
