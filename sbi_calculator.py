@@ -33,33 +33,59 @@ from dataclasses import dataclass
 # VOLATILITY CATEGORY DEFINITIONS
 # =============================================================================
 
-# Crypto-related stocks (Bitcoin, Ethereum proxies)
-CRYPTO_TICKERS = {
-    'MSTR', 'MARA', 'CLSK', 'RIOT', 'COIN', 'HOOD', 'BTBT', 'HUT', 'CIFR', 
-    'WULF', 'CORZ', 'BITF', 'HIVE', 'ARBK', 'GREE',  # BTC miners/proxies
-    'SQ', 'PYPL',  # Crypto-exposed fintech
-    'IBIT', 'BITU', 'FBTC', 'GBTC',  # Bitcoin ETFs
-    'FETH', 'ETHU', 'ETHE',  # Ethereum ETFs
-    'BSOL', 'SOLT', 'SOLQ',  # Solana ETFs
-}
+# These are dynamically built from config.py PARENT_CHILD_MAPPING
+# But we keep fallback hardcoded lists in case config import fails
 
-# Meme stocks (high retail interest, volatile)
-MEME_TICKERS = {
-    'GME', 'AMC', 'BBBY', 'BB', 'NOK', 'PLTR', 'SOFI', 'WISH', 'CLOV',
-    'SPCE', 'TLRY', 'SNDL', 'NIO', 'LCID', 'RIVN', 'FFIE',
-    'DWAC', 'PHUN', 'MARK', 'MULN', 'APRN', 'BBIG',
-}
+_CRYPTO_TICKERS = None
+_MEME_TICKERS = None
+_HIGH_VOL_TICKERS = None
 
-# High-volatility sectors (biotech, junior miners, etc.)
-HIGH_VOL_TICKERS = {
-    # Junior gold/silver miners
-    'AG', 'HL', 'CDE', 'FSM', 'MAG', 'EXK', 'PAAS', 'SVM',
-    # Biotech
-    'MRNA', 'BNTX', 'NVAX',
-    # Leveraged ETFs (already volatile)
-    'TQQQ', 'SQQQ', 'UPRO', 'SPXU', 'LABU', 'LABD',
-    'NUGT', 'DUST', 'JNUG', 'JDST',
-}
+def _build_category_sets():
+    """Build ticker sets from config.py PARENT_CHILD_MAPPING."""
+    global _CRYPTO_TICKERS, _MEME_TICKERS, _HIGH_VOL_TICKERS
+    
+    if _CRYPTO_TICKERS is not None:
+        return  # Already built
+    
+    _CRYPTO_TICKERS = set()
+    _MEME_TICKERS = set()
+    _HIGH_VOL_TICKERS = set()
+    
+    try:
+        from config import PARENT_CHILD_MAPPING
+        
+        for parent, info in PARENT_CHILD_MAPPING.items():
+            category = info.get('category', '')
+            stocks = info.get('stocks', [])
+            
+            if category == 'crypto':
+                _CRYPTO_TICKERS.update(stocks)
+            elif category == 'meme':
+                _MEME_TICKERS.update(stocks)
+            elif category == 'high_vol':
+                _HIGH_VOL_TICKERS.update(stocks)
+                
+    except ImportError:
+        # Fallback to hardcoded lists if config not available
+        _CRYPTO_TICKERS = {
+            'MSTR', 'MARA', 'CLSK', 'RIOT', 'COIN', 'HOOD', 'BTBT', 'HUT', 'CIFR', 
+            'WULF', 'CORZ', 'BITF', 'HIVE', 'ARBK', 'GREE',
+            'SQ', 'PYPL',
+            'IBIT', 'BITU', 'FBTC', 'GBTC',
+            'FETH', 'ETHU', 'ETHE',
+            'BSOL', 'SOLT', 'SOLQ',
+        }
+        _MEME_TICKERS = {
+            'GME', 'AMC', 'BBBY', 'BB', 'NOK', 'PLTR', 'SOFI', 'WISH', 'CLOV',
+            'SPCE', 'TLRY', 'SNDL', 'NIO', 'LCID', 'RIVN', 'FFIE',
+            'DWAC', 'PHUN', 'MARK', 'MULN', 'APRN', 'BBIG',
+        }
+        _HIGH_VOL_TICKERS = {
+            'AG', 'HL', 'CDE', 'FSM', 'MAG', 'EXK', 'PAAS', 'SVM',
+            'MRNA', 'BNTX', 'NVAX',
+            'TQQQ', 'SQQQ', 'UPRO', 'SPXU', 'LABU', 'LABD',
+            'NUGT', 'DUST', 'JNUG', 'JDST',
+        }
 
 
 def get_volatility_category(ticker: str) -> str:
@@ -72,13 +98,15 @@ def get_volatility_category(ticker: str) -> str:
         'high_vol' - High volatility sectors (1.5x ATR threshold)
         'standard' - Normal stocks (1x ATR threshold)
     """
+    _build_category_sets()  # Ensure sets are built
+    
     ticker_upper = ticker.upper()
     
-    if ticker_upper in CRYPTO_TICKERS:
+    if ticker_upper in _CRYPTO_TICKERS:
         return 'crypto'
-    elif ticker_upper in MEME_TICKERS:
+    elif ticker_upper in _MEME_TICKERS:
         return 'meme'
-    elif ticker_upper in HIGH_VOL_TICKERS:
+    elif ticker_upper in _HIGH_VOL_TICKERS:
         return 'high_vol'
     else:
         return 'standard'

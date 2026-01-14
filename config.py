@@ -1,568 +1,729 @@
 """
-AdaptiveX2 SectorBot Configuration
-===================================
+SectorBot Configuration
+=======================
+Parent-Child mappings for sector rotation strategy.
 
-Parent PSAR signals control sector activation.
-Child stocks are filtered by SBI 9-10 for entry.
-Exit ONLY when parent turns bearish (not when SBI drops).
+To add more stocks to a sector:
+1. Find the parent (e.g., BTC-USD)
+2. Add tickers to the 'stocks' list
+
+To add a new sector:
+1. Add a new key to PARENT_CHILD_MAPPING
+2. Include 'name', 'category', and 'stocks' keys
 """
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-# =============================================
-# SCHWAB API CONFIGURATION
-# =============================================
-SCHWAB_APP_KEY = os.getenv('SCHWAB_SBI_APP_KEY', '')
-SCHWAB_APP_SECRET = os.getenv('SCHWAB_SBI_APP_SECRET', '')
-SCHWAB_ACCOUNT_HASH = os.getenv('SCHWAB_SBI_ACCOUNT_HASH', '')
-SCHWAB_REFRESH_TOKEN = os.getenv('SCHWAB_SBI_REFRESH_TOKEN', '')
-TOKEN_FILE = os.path.expanduser('~/.schwab_sbi_tokens.json')
+# =============================================================================
+# PARENT-CHILD SECTOR MAPPINGS
+# =============================================================================
+
+PARENT_CHILD_MAPPING = {
+    # =========================================================================
+    # CRYPTO
+    # =========================================================================
+    'BTC-USD': {
+        'name': 'Bitcoin',
+        'category': 'crypto',
+        'stocks': [
+            # Bitcoin miners
+            'MSTR',   # Strategy (MicroStrategy) - largest BTC holder
+            'MARA',   # Marathon Digital - major miner
+            'CLSK',   # CleanSpark - growing miner
+            'RIOT',   # Riot Platforms - major miner
+            'BTBT',   # Bit Digital - miner
+            'HUT',    # Hut 8 Mining
+            'CIFR',   # Cipher Mining
+            'WULF',   # TeraWulf - green miner
+            'CORZ',   # Core Scientific
+            'BITF',   # Bitfarms
+            'HIVE',   # HIVE Digital
+            'IREN',   # Iris Energy
+            'ARBK',   # Argo Blockchain
+            
+            # Bitcoin-exposed companies
+            'COIN',   # Coinbase - crypto exchange
+            'HOOD',   # Robinhood - crypto trading
+            'SQ',     # Block (Square) - Bitcoin on balance sheet
+            'PYPL',   # PayPal - crypto services
+            
+            # Bitcoin ETFs (for reference, usually trade parent directly)
+            # 'IBIT',   # iShares Bitcoin Trust
+            # 'FBTC',   # Fidelity Bitcoin
+            # 'GBTC',   # Grayscale Bitcoin Trust
+        ]
+    },
+    
+    'ETH-USD': {
+        'name': 'Ethereum',
+        'category': 'crypto',
+        'stocks': [
+            'COIN',   # Coinbase
+            'HOOD',   # Robinhood
+            'ETHE',   # Grayscale Ethereum Trust
+            # Add ETH-specific plays here
+        ]
+    },
+    
+    'SOL-USD': {
+        'name': 'Solana',
+        'category': 'crypto',
+        'stocks': [
+            'COIN',   # Coinbase
+            'HOOD',   # Robinhood
+            # Add SOL-specific plays here when available
+        ]
+    },
+    
+    # =========================================================================
+    # PRECIOUS METALS
+    # =========================================================================
+    'GLD': {
+        'name': 'Gold',
+        'category': 'precious_metals',
+        'stocks': [
+            # Senior gold miners
+            'NEM',    # Newmont - largest gold miner
+            'GOLD',   # Barrick Gold
+            'AEM',    # Agnico Eagle
+            'KGC',    # Kinross Gold
+            'AU',     # AngloGold Ashanti
+            'HMY',    # Harmony Gold
+            'GFI',    # Gold Fields
+            
+            # Mid-tier miners
+            'EGO',    # Eldorado Gold
+            'BTG',    # B2Gold
+            'IAG',    # IAMGOLD
+            'NGD',    # New Gold
+            'OGC',    # OceanaGold
+            
+            # Royalty/Streaming
+            'WPM',    # Wheaton Precious Metals
+            'FNV',    # Franco-Nevada
+            'RGLD',   # Royal Gold
+            
+            # Gold ETFs/Miners ETF
+            'GDX',    # VanEck Gold Miners
+            'GDXJ',   # VanEck Junior Gold Miners
+        ]
+    },
+    
+    'SLV': {
+        'name': 'Silver',
+        'category': 'precious_metals',
+        'stocks': [
+            # Primary silver miners
+            'PAAS',   # Pan American Silver
+            'AG',     # First Majestic Silver
+            'HL',     # Hecla Mining
+            'CDE',    # Coeur Mining
+            'MAG',    # MAG Silver
+            'FSM',    # Fortuna Silver
+            'EXK',    # Endeavour Silver
+            'SVM',    # Silvercorp Metals
+            
+            # Silver ETFs
+            'SIL',    # Global X Silver Miners
+            'SILJ',   # ETFMG Prime Junior Silver
+        ]
+    },
+    
+    # =========================================================================
+    # S&P 500 SECTORS
+    # =========================================================================
+    'XLK': {
+        'name': 'Technology',
+        'category': 'sector',
+        'stocks': [
+            'AAPL',   # Apple
+            'MSFT',   # Microsoft
+            'NVDA',   # NVIDIA
+            'AVGO',   # Broadcom
+            'CRM',    # Salesforce
+            'ADBE',   # Adobe
+            'CSCO',   # Cisco
+            'ACN',    # Accenture
+            'ORCL',   # Oracle
+            'INTC',   # Intel
+            'IBM',    # IBM
+            'INTU',   # Intuit
+            'AMD',    # AMD
+            'QCOM',   # Qualcomm
+            'TXN',    # Texas Instruments
+            'NOW',    # ServiceNow
+            'AMAT',   # Applied Materials
+            'MU',     # Micron
+            'ADI',    # Analog Devices
+            'LRCX',   # Lam Research
+        ]
+    },
+    
+    'XLF': {
+        'name': 'Financials',
+        'category': 'sector',
+        'stocks': [
+            'JPM',    # JPMorgan Chase
+            'BAC',    # Bank of America
+            'WFC',    # Wells Fargo
+            'GS',     # Goldman Sachs
+            'MS',     # Morgan Stanley
+            'BLK',    # BlackRock
+            'SCHW',   # Charles Schwab
+            'C',      # Citigroup
+            'AXP',    # American Express
+            'SPGI',   # S&P Global
+            'PGR',    # Progressive
+            'CB',     # Chubb
+            'MMC',    # Marsh McLennan
+            'ICE',    # Intercontinental Exchange
+            'CME',    # CME Group
+            'USB',    # US Bancorp
+            'PNC',    # PNC Financial
+            'TFC',    # Truist
+            'AIG',    # AIG
+            'MET',    # MetLife
+        ]
+    },
+    
+    'XLV': {
+        'name': 'Healthcare',
+        'category': 'sector',
+        'stocks': [
+            'UNH',    # UnitedHealth
+            'JNJ',    # Johnson & Johnson
+            'LLY',    # Eli Lilly
+            'PFE',    # Pfizer
+            'ABBV',   # AbbVie
+            'MRK',    # Merck
+            'TMO',    # Thermo Fisher
+            'ABT',    # Abbott Labs
+            'DHR',    # Danaher
+            'BMY',    # Bristol-Myers
+            'AMGN',   # Amgen
+            'GILD',   # Gilead
+            'CVS',    # CVS Health
+            'ISRG',   # Intuitive Surgical
+            'VRTX',   # Vertex
+            'SYK',    # Stryker
+            'REGN',   # Regeneron
+            'MDT',    # Medtronic
+            'ZTS',    # Zoetis
+            'BDX',    # Becton Dickinson
+        ]
+    },
+    
+    'XLE': {
+        'name': 'Energy',
+        'category': 'sector',
+        'stocks': [
+            'XOM',    # Exxon Mobil
+            'CVX',    # Chevron
+            'COP',    # ConocoPhillips
+            'EOG',    # EOG Resources
+            'SLB',    # Schlumberger
+            'MPC',    # Marathon Petroleum
+            'PXD',    # Pioneer Natural
+            'PSX',    # Phillips 66
+            'VLO',    # Valero
+            'OXY',    # Occidental
+            'WMB',    # Williams Companies
+            'KMI',    # Kinder Morgan
+            'HAL',    # Halliburton
+            'DVN',    # Devon Energy
+            'HES',    # Hess
+            'FANG',   # Diamondback
+            'BKR',    # Baker Hughes
+            'OKE',    # ONEOK
+            'TRGP',   # Targa Resources
+            'MRO',    # Marathon Oil
+        ]
+    },
+    
+    'XLI': {
+        'name': 'Industrials',
+        'category': 'sector',
+        'stocks': [
+            'CAT',    # Caterpillar
+            'HON',    # Honeywell
+            'UNP',    # Union Pacific
+            'BA',     # Boeing
+            'RTX',    # RTX (Raytheon)
+            'DE',     # Deere
+            'GE',     # GE Aerospace
+            'LMT',    # Lockheed Martin
+            'UPS',    # UPS
+            'ADP',    # ADP
+            'MMM',    # 3M
+            'ETN',    # Eaton
+            'ITW',    # Illinois Tool Works
+            'EMR',    # Emerson
+            'FDX',    # FedEx
+            'NOC',    # Northrop Grumman
+            'GD',     # General Dynamics
+            'CSX',    # CSX
+            'NSC',    # Norfolk Southern
+            'WM',     # Waste Management
+        ]
+    },
+    
+    'XLY': {
+        'name': 'Consumer Discretionary',
+        'category': 'sector',
+        'stocks': [
+            'AMZN',   # Amazon
+            'TSLA',   # Tesla
+            'HD',     # Home Depot
+            'MCD',    # McDonald's
+            'NKE',    # Nike
+            'LOW',    # Lowe's
+            'SBUX',   # Starbucks
+            'TJX',    # TJX Companies
+            'BKNG',   # Booking Holdings
+            'CMG',    # Chipotle
+            'MAR',    # Marriott
+            'ORLY',   # O'Reilly Auto
+            'AZO',    # AutoZone
+            'GM',     # General Motors
+            'F',      # Ford
+            'ROST',   # Ross Stores
+            'DHI',    # D.R. Horton
+            'LEN',    # Lennar
+            'YUM',    # Yum! Brands
+            'EBAY',   # eBay
+        ]
+    },
+    
+    'XLP': {
+        'name': 'Consumer Staples',
+        'category': 'sector',
+        'stocks': [
+            'PG',     # Procter & Gamble
+            'KO',     # Coca-Cola
+            'PEP',    # PepsiCo
+            'COST',   # Costco
+            'WMT',    # Walmart
+            'PM',     # Philip Morris
+            'MO',     # Altria
+            'MDLZ',   # Mondelez
+            'CL',     # Colgate-Palmolive
+            'KMB',    # Kimberly-Clark
+            'GIS',    # General Mills
+            'STZ',    # Constellation Brands
+            'SYY',    # Sysco
+            'KHC',    # Kraft Heinz
+            'HSY',    # Hershey
+            'K',      # Kellanova
+            'CAG',    # Conagra
+            'ADM',    # ADM
+            'KR',     # Kroger
+            'EL',     # Estee Lauder
+        ]
+    },
+    
+    'XLU': {
+        'name': 'Utilities',
+        'category': 'sector',
+        'stocks': [
+            'NEE',    # NextEra Energy
+            'DUK',    # Duke Energy
+            'SO',     # Southern Company
+            'D',      # Dominion Energy
+            'AEP',    # American Electric Power
+            'SRE',    # Sempra
+            'EXC',    # Exelon
+            'XEL',    # Xcel Energy
+            'ED',     # Consolidated Edison
+            'PEG',    # PSEG
+            'WEC',    # WEC Energy
+            'ES',     # Eversource
+            'AWK',    # American Water Works
+            'DTE',    # DTE Energy
+            'ETR',    # Entergy
+            'FE',     # FirstEnergy
+            'AEE',    # Ameren
+            'CMS',    # CMS Energy
+            'CNP',    # CenterPoint
+            'ATO',    # Atmos Energy
+        ]
+    },
+    
+    'XLC': {
+        'name': 'Communication Services',
+        'category': 'sector',
+        'stocks': [
+            'META',   # Meta Platforms
+            'GOOGL',  # Alphabet A
+            'GOOG',   # Alphabet C
+            'NFLX',   # Netflix
+            'DIS',    # Disney
+            'VZ',     # Verizon
+            'T',      # AT&T
+            'CMCSA',  # Comcast
+            'TMUS',   # T-Mobile
+            'CHTR',   # Charter
+            'EA',     # Electronic Arts
+            'WBD',    # Warner Bros Discovery
+            'TTWO',   # Take-Two
+            'OMC',    # Omnicom
+            'IPG',    # Interpublic
+            'LYV',    # Live Nation
+            'MTCH',   # Match Group
+            'PARA',   # Paramount
+            'FOX',    # Fox Corp
+            'FOXA',   # Fox Corp A
+        ]
+    },
+    
+    'XLRE': {
+        'name': 'Real Estate',
+        'category': 'sector',
+        'stocks': [
+            'AMT',    # American Tower
+            'PLD',    # Prologis
+            'CCI',    # Crown Castle
+            'EQIX',   # Equinix
+            'SPG',    # Simon Property
+            'PSA',    # Public Storage
+            'WELL',   # Welltower
+            'DLR',    # Digital Realty
+            'O',      # Realty Income
+            'AVB',    # AvalonBay
+            'EQR',    # Equity Residential
+            'VTR',    # Ventas
+            'SBAC',   # SBA Communications
+            'WY',     # Weyerhaeuser
+            'ARE',    # Alexandria RE
+            'EXR',    # Extra Space Storage
+            'MAA',    # Mid-America Apt
+            'UDR',    # UDR Inc
+            'ESS',    # Essex Property
+            'INVH',   # Invitation Homes
+        ]
+    },
+    
+    'XLB': {
+        'name': 'Materials',
+        'category': 'sector',
+        'stocks': [
+            'LIN',    # Linde
+            'APD',    # Air Products
+            'SHW',    # Sherwin-Williams
+            'FCX',    # Freeport-McMoRan
+            'ECL',    # Ecolab
+            'NEM',    # Newmont
+            'NUE',    # Nucor
+            'DOW',    # Dow Inc
+            'DD',     # DuPont
+            'CTVA',   # Corteva
+            'PPG',    # PPG Industries
+            'VMC',    # Vulcan Materials
+            'MLM',    # Martin Marietta
+            'ALB',    # Albemarle
+            'IFF',    # IFF
+            'STLD',   # Steel Dynamics
+            'CF',     # CF Industries
+            'MOS',    # Mosaic
+            'BALL',   # Ball Corp
+            'PKG',    # Packaging Corp
+        ]
+    },
+    
+    # =========================================================================
+    # INDUSTRIES / THEMATIC
+    # =========================================================================
+    'SMH': {
+        'name': 'Semiconductors',
+        'category': 'industry',
+        'stocks': [
+            'NVDA',   # NVIDIA
+            'AVGO',   # Broadcom
+            'AMD',    # AMD
+            'QCOM',   # Qualcomm
+            'TXN',    # Texas Instruments
+            'INTC',   # Intel
+            'MU',     # Micron
+            'AMAT',   # Applied Materials
+            'LRCX',   # Lam Research
+            'ADI',    # Analog Devices
+            'KLAC',   # KLA Corp
+            'MRVL',   # Marvell
+            'NXPI',   # NXP Semi
+            'ON',     # ON Semiconductor
+            'SWKS',   # Skyworks
+            'MCHP',   # Microchip
+            'MPWR',   # Monolithic Power
+            'TER',    # Teradyne
+            'ENTG',   # Entegris
+            'LSCC',   # Lattice Semi
+        ]
+    },
+    
+    'IBB': {
+        'name': 'Biotech',
+        'category': 'industry',
+        'stocks': [
+            'AMGN',   # Amgen
+            'GILD',   # Gilead
+            'VRTX',   # Vertex
+            'REGN',   # Regeneron
+            'BIIB',   # Biogen
+            'MRNA',   # Moderna
+            'ILMN',   # Illumina
+            'ALNY',   # Alnylam
+            'SGEN',   # Seagen
+            'BMRN',   # BioMarin
+            'EXAS',   # Exact Sciences
+            'INCY',   # Incyte
+            'BGNE',   # BeiGene
+            'UTHR',   # United Therapeutics
+            'HALO',   # Halozyme
+            'PCVX',   # Vaxcyte
+            'ARGX',   # argenx
+            'SRPT',   # Sarepta
+            'RARE',   # Ultragenyx
+            'IONS',   # Ionis
+        ]
+    },
+    
+    'KRE': {
+        'name': 'Regional Banks',
+        'category': 'industry',
+        'stocks': [
+            'FITB',   # Fifth Third
+            'RF',     # Regions Financial
+            'HBAN',   # Huntington
+            'CFG',    # Citizens Financial
+            'KEY',    # KeyCorp
+            'MTB',    # M&T Bank
+            'ZION',   # Zions
+            'CMA',    # Comerica
+            'FHN',    # First Horizon
+            'SNV',    # Synovus
+            'WAL',    # Western Alliance
+            'EWBC',   # East West Bancorp
+            'PNFP',   # Pinnacle Financial
+            'GBCI',   # Glacier Bancorp
+            'UBSI',   # United Bankshares
+            'VLY',    # Valley National
+            'FNB',    # FNB Corp
+            'BOKF',   # BOK Financial
+            'ONB',    # Old National
+            'OZK',    # Bank OZK
+        ]
+    },
+    
+    'XHB': {
+        'name': 'Homebuilders',
+        'category': 'industry',
+        'stocks': [
+            'DHI',    # D.R. Horton
+            'LEN',    # Lennar
+            'NVR',    # NVR Inc
+            'PHM',    # PulteGroup
+            'TOL',    # Toll Brothers
+            'KBH',    # KB Home
+            'TMHC',   # Taylor Morrison
+            'MTH',    # Meritage Homes
+            'MHO',    # M/I Homes
+            'CCS',    # Century Communities
+            'HD',     # Home Depot
+            'LOW',    # Lowe's
+            'SHW',    # Sherwin-Williams
+            'MAS',    # Masco
+            'BLDR',   # Builders FirstSource
+            'WSM',    # Williams-Sonoma
+            'RH',     # RH (Restoration Hardware)
+            'FBIN',   # Fortune Brands
+            'FBHS',   # Fortune Brands Home
+            'WHR',    # Whirlpool
+        ]
+    },
+    
+    # =========================================================================
+    # INTERNATIONAL
+    # =========================================================================
+    'FXI': {
+        'name': 'China Large-Cap',
+        'category': 'international',
+        'stocks': [
+            'BABA',   # Alibaba
+            'JD',     # JD.com
+            'PDD',    # PDD Holdings
+            'BIDU',   # Baidu
+            'NIO',    # NIO
+            'LI',     # Li Auto
+            'XPEV',   # XPeng
+            'NTES',   # NetEase
+            'TME',    # Tencent Music
+            'BILI',   # Bilibili
+            'IQ',     # iQIYI
+            'FUTU',   # Futu Holdings
+            'TAL',    # TAL Education
+            'MNSO',   # MINISO
+            'ZTO',    # ZTO Express
+            'VNET',   # VNET Group
+            'QFIN',   # Qifu Technology
+            'YUMC',   # Yum China
+            'EDU',    # New Oriental
+            'ATHM',   # Autohome
+        ]
+    },
+    
+    'EWJ': {
+        'name': 'Japan',
+        'category': 'international',
+        'stocks': [
+            'TM',     # Toyota
+            'SONY',   # Sony
+            'MUFG',   # Mitsubishi UFJ
+            'NMR',    # Nomura
+            'HMC',    # Honda
+            'SMFG',   # Sumitomo Mitsui
+            'MFG',    # Mizuho Financial
+            'IX',     # ORIX
+            'KB',     # KB Financial (Korean but related)
+            'CAJ',    # Canon
+        ]
+    },
+    
+    'INDA': {
+        'name': 'India',
+        'category': 'international',
+        'stocks': [
+            'INFY',   # Infosys
+            'WIT',    # Wipro
+            'HDB',    # HDFC Bank
+            'IBN',    # ICICI Bank
+            'SIFY',   # Sify Technologies
+            'RDY',    # Dr. Reddy's
+            'TTM',    # Tata Motors
+            'VEDL',   # Vedanta
+            'WNS',    # WNS Holdings
+            'AZRE',   # Azure Power
+        ]
+    },
+    
+    # =========================================================================
+    # MEME / HIGH VOLATILITY
+    # =========================================================================
+    'MEME': {
+        'name': 'Meme Stocks',
+        'category': 'meme',
+        'stocks': [
+            'GME',    # GameStop
+            'AMC',    # AMC Entertainment
+            'BBBY',   # Bed Bath & Beyond
+            'BB',     # BlackBerry
+            'PLTR',   # Palantir
+            'SOFI',   # SoFi
+            'WISH',   # ContextLogic
+            'CLOV',   # Clover Health
+            'SPCE',   # Virgin Galactic
+            'TLRY',   # Tilray
+            'NIO',    # NIO
+            'LCID',   # Lucid Motors
+            'RIVN',   # Rivian
+            'FFIE',   # Faraday Future
+            'MULN',   # Mullen Automotive
+        ]
+    },
+}
 
 
-# =============================================
-# STRATEGY SETTINGS
-# =============================================
+# =============================================================================
+# HELPER FUNCTIONS
+# =============================================================================
+
+def get_all_parents() -> List[str]:
+    """Get list of all parent tickers."""
+    return list(PARENT_CHILD_MAPPING.keys())
+
+
+def get_children(parent: str) -> List[str]:
+    """Get children for a parent ticker."""
+    if parent in PARENT_CHILD_MAPPING:
+        return PARENT_CHILD_MAPPING[parent].get('stocks', [])
+    return []
+
+
+def get_all_tickers() -> List[str]:
+    """Get all unique tickers (parents + children)."""
+    tickers = set()
+    for parent, info in PARENT_CHILD_MAPPING.items():
+        tickers.add(parent)
+        tickers.update(info.get('stocks', []))
+    return list(tickers)
+
+
+def get_parents_by_category(category: str) -> List[str]:
+    """Get parents filtered by category."""
+    return [p for p, info in PARENT_CHILD_MAPPING.items() 
+            if info.get('category') == category]
+
+
+def get_all_categories() -> List[str]:
+    """Get list of all unique categories."""
+    return list(set(info.get('category', 'other') 
+                   for info in PARENT_CHILD_MAPPING.values()))
+
+
+def get_category_allocation(category: str) -> float:
+    """Get suggested allocation for a category (placeholder)."""
+    allocations = {
+        'crypto': 0.20,
+        'precious_metals': 0.15,
+        'sector': 0.10,
+        'industry': 0.10,
+        'international': 0.05,
+        'meme': 0.05,
+    }
+    return allocations.get(category, 0.05)
+
+
+def update_meme_holdings():
+    """Update meme stock children based on current holdings (placeholder)."""
+    # This could read from a file or API to get current meme stock trends
+    pass
+
+
+# =============================================================================
+# DEFAULT CONFIGURATION
+# =============================================================================
 
 @dataclass
 class StrategyConfig:
-    """Configuration for AdaptiveX2 SectorBot strategy."""
-    
-    # SBI Entry Thresholds
-    min_sbi_for_entry: int = 9  # Only enter on SBI 9-10
-    sbi_10_weight: float = 2.0  # Weight multiplier for SBI=10 stocks
-    sbi_9_weight: float = 1.0   # Weight multiplier for SBI=9 stocks
-    
-    # EXIT RULES - KEY DIFFERENCE
-    # We do NOT exit when SBI drops - only when PARENT turns bearish
-    exit_on_sbi_drop: bool = False  # NEW: Don't sell just because SBI drops
-    exit_on_parent_bearish: bool = True  # Exit ALL sector positions when parent turns bearish
-    
-    # Position Limits
-    max_stocks_per_sector: int = 5   # Max stocks to hold per sector
-    max_total_positions: int = 25    # Max total positions
-    
-    # Sector Allocation (% of portfolio when sector is active)
-    sector_allocations: Dict[str, float] = field(default_factory=lambda: {
-        'crypto': 0.25,          # BTC, ETH, SOL combined
-        'precious_metals': 0.20,  # Gold + Silver
-        'sp500_sectors': 0.30,    # XLK, XLF, XLV, etc.
-        'industries': 0.15,       # SMH, IBB, KRE, etc.
-        'international': 0.10,    # FXI, EWJ, INDA, etc.
-    })
-    
-    # Within each category, allocate to sub-sectors based on parent momentum
-    # Example: If crypto is 25% and BTC is stronger than ETH, BTC gets more
-    use_momentum_weighting: bool = True
-    
-    # Risk Management
-    max_position_pct: float = 0.10  # Max 10% in any single stock
-    min_position_pct: float = 0.02  # Min 2% position size
-    
-    # Leverage
-    use_leverage: bool = False  # Individual stocks = no leverage
+    """Strategy configuration settings."""
+    max_positions: int = 20
+    max_stocks_per_sector: int = 5
+    min_sbi_entry: int = 9
+    min_rsi_entry: float = 50.0
+    weak_rsi_threshold: float = 40.0
+    rotation_enabled: bool = True
+    weighted_allocation: bool = False
 
 
 DEFAULT_CONFIG = StrategyConfig()
 
 
-# =============================================
-# PARENT → CHILD STOCK MAPPING
-# =============================================
-
-PARENT_CHILD_MAPPING = {
-    # =========================================
-    # CRYPTO (tied to BTC/ETH/SOL signals)
-    # =========================================
-    'BTC-USD': {
-        'description': 'Bitcoin',
-        'category': 'crypto',
-        'etf_1x': 'IBIT',
-        'etf_2x': 'BITU',
-        'stocks': [
-            'MSTR',   # MicroStrategy - largest BTC holder
-            'MARA',   # Marathon Digital - BTC miner
-            'CLSK',   # CleanSpark - BTC miner
-            'RIOT',   # Riot Platforms - BTC miner
-            'COIN',   # Coinbase - crypto exchange
-            'HOOD',   # Robinhood - crypto trading
-            'BTBT',   # Bit Digital - BTC miner
-            'HUT',    # Hut 8 Mining
-            'CIFR',   # Cipher Mining
-            'WULF',   # TeraWulf - BTC miner
-            'XYZ',    # Block (formerly SQ, crypto services)
-            'PYPL',   # PayPal (crypto)
-        ],
-    },
-    'ETH-USD': {
-        'description': 'Ethereum',
-        'category': 'crypto',
-        'etf_1x': 'FETH',
-        'etf_2x': 'ETHU',
-        'stocks': [
-            'SBET',   # SharpLink - ETH treasury vehicle
-            'BMNR',   # BitMine Immersion - largest ETH holder
-            'BTCS',   # Blockchain Technology Consensus Solutions
-            'BTBT',   # Bit Digital - ETH treasury
-        ],
-    },
-    'SOL-USD': {
-        'description': 'Solana',
-        'category': 'crypto',
-        'etf_1x': None,  # SOLQ delisted
-        'etf_2x': 'SOLT',
-        'stocks': [
-            'COIN',   # Coinbase
-            'HOOD',   # Robinhood
-        ],
-    },
-    
-    # =========================================
-    # PRECIOUS METALS
-    # =========================================
-    'GLD': {
-        'description': 'Gold',
-        'category': 'precious_metals',
-        'etf_1x': 'GDX',
-        'etf_2x': 'NUGT',
-        'stocks': [
-            'NEM',    # Newmont - largest gold miner
-            'GOLD',   # Barrick Gold
-            'AEM',    # Agnico Eagle
-            'FNV',    # Franco-Nevada (royalty)
-            'WPM',    # Wheaton Precious Metals (streaming)
-            'GFI',    # Gold Fields
-            'KGC',    # Kinross Gold
-            'AU',     # AngloGold Ashanti
-            'HMY',    # Harmony Gold
-            'EGO',    # Eldorado Gold
-        ],
-    },
-    'SLV': {
-        'description': 'Silver',
-        'category': 'precious_metals',
-        'etf_1x': 'SIL',
-        'etf_2x': 'AGQ',
-        'stocks': [
-            'PAAS',   # Pan American Silver
-            'WPM',    # Wheaton (also silver streaming)
-            'HL',     # Hecla Mining
-            'AG',     # First Majestic Silver
-            'CDE',    # Coeur Mining
-            'EXK',    # Endeavour Silver (replacing delisted MAG)
-        ],
-    },
-    
-    # =========================================
-    # S&P 500 SECTORS
-    # =========================================
-    'XLK': {
-        'description': 'Technology',
-        'category': 'sp500_sectors',
-        'etf_1x': 'XLK',
-        'etf_2x': 'ROM',
-        'stocks': [
-            'AAPL', 'MSFT', 'NVDA', 'AVGO', 'CRM',
-            'ADBE', 'CSCO', 'ACN', 'ORCL', 'AMD',
-        ],
-    },
-    'XLF': {
-        'description': 'Financials',
-        'category': 'sp500_sectors',
-        'etf_1x': 'XLF',
-        'etf_2x': 'UYG',
-        'stocks': [
-            'JPM', 'V', 'MA', 'BAC', 'WFC',
-            'GS', 'MS', 'AXP', 'SPGI', 'BLK',
-        ],
-    },
-    'XLV': {
-        'description': 'Healthcare',
-        'category': 'sp500_sectors',
-        'etf_1x': 'XLV',
-        'etf_2x': 'RXL',
-        'stocks': [
-            'LLY', 'UNH', 'JNJ', 'ABBV', 'MRK',
-            'TMO', 'ABT', 'PFE', 'ISRG', 'AMGN',
-        ],
-    },
-    'XLY': {
-        'description': 'Consumer Discretionary',
-        'category': 'sp500_sectors',
-        'etf_1x': 'XLY',
-        'etf_2x': 'UCC',
-        'stocks': [
-            'AMZN', 'TSLA', 'HD', 'MCD', 'NKE',
-            'LOW', 'SBUX', 'TJX', 'BKNG', 'CMG',
-        ],
-    },
-    'XLC': {
-        'description': 'Communication Services',
-        'category': 'sp500_sectors',
-        'etf_1x': 'XLC',
-        'etf_2x': None,
-        'stocks': [
-            'META', 'GOOGL', 'NFLX', 'DIS', 'CMCSA',
-            'VZ', 'T', 'TMUS', 'EA', 'TTWO',
-        ],
-    },
-    'XLI': {
-        'description': 'Industrials',
-        'category': 'sp500_sectors',
-        'etf_1x': 'XLI',
-        'etf_2x': 'UXI',
-        'stocks': [
-            'GE', 'CAT', 'RTX', 'UNP', 'HON',
-            'DE', 'BA', 'LMT', 'UPS', 'MMM',
-        ],
-    },
-    'XLE': {
-        'description': 'Energy',
-        'category': 'sp500_sectors',
-        'etf_1x': 'XLE',
-        'etf_2x': 'DIG',
-        'stocks': [
-            'XOM', 'CVX', 'COP', 'SLB', 'EOG',
-            'MPC', 'PSX', 'VLO', 'OXY', 'BKR',
-        ],
-    },
-    'OIH': {
-        'description': 'Oil Services',
-        'category': 'industries',
-        'etf_1x': 'OIH',
-        'etf_2x': None,
-        'stocks': [
-            'SLB',    # Schlumberger - largest oilfield services
-            'BKR',    # Baker Hughes
-            'HAL',    # Halliburton
-            'NOV',    # NOV Inc (drilling equipment)
-            'FTI',    # TechnipFMC
-            'CHX',    # ChampionX
-            'HP',     # Helmerich & Payne (drilling)
-            'PTEN',   # Patterson-UTI Energy
-            'RIG',    # Transocean (offshore drilling)
-            'VAL',    # Valaris (offshore drilling)
-        ],
-    },
-    'XLU': {
-        'description': 'Utilities',
-        'category': 'sp500_sectors',
-        'etf_1x': 'XLU',
-        'etf_2x': 'UPW',
-        'stocks': [
-            'NEE', 'SO', 'DUK', 'CEG', 'SRE',
-            'AEP', 'D', 'EXC', 'XEL', 'ED',
-        ],
-    },
-    'XLP': {
-        'description': 'Consumer Staples',
-        'category': 'sp500_sectors',
-        'etf_1x': 'XLP',
-        'etf_2x': None,
-        'stocks': [
-            'PG', 'KO', 'PEP', 'COST', 'WMT',
-            'PM', 'MO', 'CL', 'MDLZ', 'KHC',
-        ],
-    },
-    'XLB': {
-        'description': 'Materials',
-        'category': 'sp500_sectors',
-        'etf_1x': 'XLB',
-        'etf_2x': 'UYM',
-        'stocks': [
-            'LIN', 'SHW', 'APD', 'FCX', 'ECL',
-            'NUE', 'DOW', 'DD', 'VMC', 'MLM',
-        ],
-    },
-    'XLRE': {
-        'description': 'Real Estate',
-        'category': 'sp500_sectors',
-        'etf_1x': 'XLRE',
-        'etf_2x': 'URE',
-        'stocks': [
-            'PLD', 'AMT', 'EQIX', 'WELL', 'SPG',
-            'PSA', 'O', 'DLR', 'CCI', 'AVB',
-        ],
-    },
-    
-    # =========================================
-    # INDUSTRY ETFs
-    # =========================================
-    'SMH': {
-        'description': 'Semiconductors',
-        'category': 'industries',
-        'etf_1x': 'SMH',
-        'etf_2x': 'SOXL',
-        'stocks': [
-            'NVDA', 'TSM', 'AVGO', 'AMD', 'ASML',
-            'QCOM', 'TXN', 'LRCX', 'AMAT', 'MU',
-        ],
-    },
-    'IBB': {
-        'description': 'Biotech',
-        'category': 'industries',
-        'etf_1x': 'IBB',
-        'etf_2x': 'LABU',
-        'stocks': [
-            'VRTX', 'AMGN', 'GILD', 'REGN', 'BIIB',
-            'MRNA', 'ILMN', 'ALNY', 'BMRN', 'ARGX',  # ARGX replacing SGEN (acquired by Pfizer)
-        ],
-    },
-    'KRE': {
-        'description': 'Regional Banks',
-        'category': 'industries',
-        'etf_1x': 'KRE',
-        'etf_2x': None,
-        'stocks': [
-            'HBAN', 'RF', 'CFG', 'KEY', 'FITB',
-            'MTB', 'ZION', 'CMA', 'FHN', 'WAL',
-        ],
-    },
-    'XHB': {
-        'description': 'Homebuilders',
-        'category': 'industries',
-        'etf_1x': 'XHB',
-        'etf_2x': None,
-        'stocks': [
-            'DHI', 'LEN', 'NVR', 'PHM', 'TOL',
-            'KBH', 'TMHC', 'MTH', 'MHO', 'GRBK',  # GRBK replacing MDC (delisted)
-        ],
-    },
-    'URA': {
-        'description': 'Uranium/Nuclear',
-        'category': 'industries',
-        'etf_1x': 'URA',
-        'etf_2x': None,
-        'stocks': [
-            'CCJ', 'CEG', 'VST', 'SMR', 'LEU',
-            'NNE', 'DNN', 'OKLO', 'UEC', 'NLR',
-        ],
-    },
-    'ITA': {
-        'description': 'Aerospace & Defense',
-        'category': 'industries',
-        'etf_1x': 'ITA',
-        'etf_2x': None,
-        'stocks': [
-            'RTX', 'LMT', 'BA', 'NOC', 'GD',
-            'TDG', 'LHX', 'HII', 'TXT', 'AXON',
-        ],
-    },
-    'MEME': {
-        'description': 'Meme Stocks',
-        'category': 'meme',
-        'etf_1x': 'MEME',  # Roundhill MEME ETF
-        'etf_2x': None,
-        'stocks': [
-            # Top holdings from stockanalysis.com/etf/meme/holdings/
-            # Updated monthly via meme_holdings.py
-            'GME',    # GameStop - 6.52%
-            'MSTR',   # MicroStrategy - 5.89%
-            'HOOD',   # Robinhood - 5.54%
-            'RDDT',   # Reddit - 5.46%
-            'IONQ',   # IonQ - 5.44%
-            'COIN',   # Coinbase - 5.37%
-            'RKLB',   # Rocket Lab - 5.35%
-            'SOFI',   # SoFi - 5.30%
-            'PLTR',   # Palantir - 5.26%
-            'AMC',    # AMC - 4.54%
-            'AFRM',   # Affirm - 4.49%
-            'UPST',   # Upstart - 4.44%
-            'CVNA',   # Carvana - 4.43%
-            'LCID',   # Lucid - 4.15%
-            'RIVN',   # Rivian - 4.09%
-            'DNA',    # Ginkgo Bioworks - 3.83%
-            'JOBY',   # Joby Aviation - 3.73%
-            'OPEN',   # Opendoor - 3.48%
-            'PLUG',   # Plug Power - 3.37%
-            'MARA',   # Marathon Digital - 2.99%
-        ],
-        'dynamic': True,  # Flag to refresh from meme_holdings.py monthly
-    },
-    
-    # =========================================
-    # INTERNATIONAL
-    # =========================================
-    'FXI': {
-        'description': 'China',
-        'category': 'international',
-        'etf_1x': 'FXI',
-        'etf_2x': 'YINN',
-        'stocks': [
-            'BABA', 'JD', 'PDD', 'BIDU', 'NIO',
-            'XPEV', 'LI', 'NTES', 'TME', 'BILI',
-        ],
-    },
-    'EWJ': {
-        'description': 'Japan',
-        'category': 'international',
-        'etf_1x': 'EWJ',
-        'etf_2x': 'EZJ',
-        'stocks': [
-            'TM', 'SONY', 'MUFG', 'SMFG', 'HMC',
-            'NTDOY', 'MFG',  # MFG (Mizuho) replacing delisted CAJ
-        ],
-    },
-    'INDA': {
-        'description': 'India',
-        'category': 'international',
-        'etf_1x': 'INDA',
-        'etf_2x': 'INDL',
-        'stocks': [
-            'INFY', 'WIT', 'HDB', 'IBN', 'RDY', 'SIFY',  # SIFY replacing delisted TTM
-        ],
-    },
-    'EWZ': {
-        'description': 'Brazil',
-        'category': 'international',
-        'etf_1x': 'EWZ',
-        'etf_2x': 'UBR',
-        'stocks': [
-            'VALE', 'PBR', 'ITUB', 'BBD', 'ABEV', 'NU',
-        ],
-    },
-    'EEM': {
-        'description': 'Emerging Markets',
-        'category': 'international',
-        'etf_1x': 'EEM',
-        'etf_2x': 'EET',
-        'stocks': [
-            'TSM', 'BABA', 'VALE', 'PDD', 'INFY',
-            'JD', 'NU', 'MELI', 'SE',
-        ],
-    },
-    
-    # =========================================
-    # AI INFRASTRUCTURE (NEW)
-    # =========================================
-    'TCAI': {
-        'description': 'AI Infrastructure',
-        'category': 'ai_infrastructure',
-        'etf_1x': 'TCAI',  # Tortoise AI Infrastructure ETF
-        'etf_2x': None,
-        'stocks': [
-            # Top holdings from tortoisecapital.com/etf/tortoise-ai-infrastructure-etf
-            # Data centers, power, networking, compute
-            'CIEN',   # Ciena Corp - 5.55% - Networking
-            'STX',    # Seagate - 4.79% - Storage
-            'VRT',    # Vertiv - 4.66% - Data center cooling
-            'PWR',    # Quanta Services - 4.12% - Power infrastructure
-            'WDC',    # Western Digital - 4.01% - Storage
-            'NRG',    # NRG Energy - 3.96% - Power
-            'DELL',   # Dell Technologies - 3.93% - Servers
-            'NVT',    # nVent Electric - 3.80% - Electrical infrastructure
-            'MU',     # Micron - 3.39% - Memory
-            'EQT',    # EQT Corp - 3.23% - Natural gas
-            'CIFR',   # Cipher Mining - 3.21% - Bitcoin mining/AI compute
-            'MTZ',    # MasTec - 3.16% - Infrastructure construction
-            'MYRG',   # MYR Group - 2.86% - Electrical construction
-            'IREN',   # IREN Ltd - 2.64% - Bitcoin mining/AI compute
-            'CORZ',   # Core Scientific - 2.46% - Bitcoin mining/AI compute
-            'EXE',    # Expand Energy - 2.45% - Natural gas
-            'WULF',   # Terawulf - 2.45% - Bitcoin mining/AI compute
-            'PRIM',   # Primoris Services - 2.34% - Infrastructure
-            'PSTG',   # Pure Storage - 2.31% - Storage
-            'CEG',    # Constellation Energy - 2.30% - Nuclear power
-            'WMB',    # Williams Companies - 2.17% - Natural gas pipelines
-            'ANET',   # Arista Networks - 2.00% - Networking
-            'VST',    # Vistra - 2.00% - Power
-            'EVRG',   # Evergy - 1.95% - Utilities
-            'APH',    # Amphenol - 1.80% - Connectors
-            'ET',     # Energy Transfer - 1.49% - Pipelines
-            'ETR',    # Entergy - 1.44% - Utilities
-            'MOD',    # Modine Manufacturing - 1.43% - Thermal management
-            'GEV',    # GE Vernova - 1.42% - Power equipment
-            'SRE',    # Sempra - 1.33% - Utilities
-            'SNDK',   # Sandisk - 1.28% - Storage
-            'DLR',    # Digital Realty - 1.22% - Data centers
-            'CAT',    # Caterpillar - 1.03% - Construction equipment
-            'TLN',    # Talen Energy - 1.02% - Power
-            'NVDA',   # NVIDIA - 0.92% - AI chips
-            'DTM',    # DT Midstream - 0.89% - Pipelines
-            'SMCI',   # Super Micro Computer - 0.88% - AI servers
-            'CMI',    # Cummins - 0.71% - Power generators
-            'CLS',    # Celestica - 0.57% - Electronics manufacturing
-            'EQIX',   # Equinix - 0.57% - Data centers
-        ],
-    },
-}
-
-
-# =============================================
-# HELPER FUNCTIONS
-# =============================================
-
-def update_meme_holdings():
-    """
-    Dynamically update meme stock holdings from live sources.
-    Call this before running scans to get fresh meme stocks.
-    """
-    try:
-        from meme_holdings import get_meme_holdings
-        result = get_meme_holdings(use_cache=True)
-        if result and result['stocks']:
-            PARENT_CHILD_MAPPING['MEME']['stocks'] = result['stocks']
-            print(f"   🎮 Updated MEME holdings: {len(result['stocks'])} stocks from {result['source']}")
-    except ImportError:
-        print("   ⚠️ meme_holdings.py not found, using static list")
-    except Exception as e:
-        print(f"   ⚠️ Could not update meme holdings: {e}")
-
-
-def get_all_tickers() -> List[str]:
-    """Get all tickers needed for data fetching."""
-    tickers = set()
-    
-    for parent, info in PARENT_CHILD_MAPPING.items():
-        tickers.add(parent)
-        if info.get('etf_1x'):
-            tickers.add(info['etf_1x'])
-        if info.get('etf_2x'):
-            tickers.add(info['etf_2x'])
-        tickers.update(info['stocks'])
-    
-    # Remove any None values
-    tickers.discard(None)
-    
-    return sorted(list(tickers))
-
-
-def get_parents_by_category(category: str) -> List[str]:
-    """Get all parent tickers for a category."""
-    return [parent for parent, info in PARENT_CHILD_MAPPING.items() 
-            if info['category'] == category]
-
-
-def get_all_categories() -> List[str]:
-    """Get all category names."""
-    return list(DEFAULT_CONFIG.sector_allocations.keys())
-
-
-def get_category_allocation(category: str) -> float:
-    """Get the allocation percentage for a category."""
-    return DEFAULT_CONFIG.sector_allocations.get(category, 0.0)
-
-
-# =============================================
-# PRINT SUMMARY
-# =============================================
+# =============================================================================
+# TESTING
+# =============================================================================
 
 if __name__ == "__main__":
-    print("AdaptiveX2 SectorBot Configuration")
+    print("SectorBot Configuration")
     print("=" * 60)
     
-    all_tickers = get_all_tickers()
-    print(f"\nTotal tickers to track: {len(all_tickers)}")
+    print(f"\nTotal parents: {len(PARENT_CHILD_MAPPING)}")
+    print(f"Total unique tickers: {len(get_all_tickers())}")
     
-    print("\nParent signals by category:")
+    print("\nCategories:")
     for cat in get_all_categories():
         parents = get_parents_by_category(cat)
-        alloc = get_category_allocation(cat)
-        print(f"  {cat} ({alloc*100:.0f}%): {', '.join(parents)}")
+        print(f"  {cat}: {len(parents)} parents")
     
-    print("\nStrategy settings:")
-    print(f"  Min SBI for entry: {DEFAULT_CONFIG.min_sbi_for_entry}")
-    print(f"  Exit on SBI drop: {DEFAULT_CONFIG.exit_on_sbi_drop}")
-    print(f"  Exit on parent bearish: {DEFAULT_CONFIG.exit_on_parent_bearish}")
-    print(f"  Max stocks per sector: {DEFAULT_CONFIG.max_stocks_per_sector}")
+    print("\nBTC-USD children:")
+    for child in get_children('BTC-USD'):
+        print(f"  - {child}")
