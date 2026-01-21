@@ -121,6 +121,22 @@ jobs:
           path: sectorbot_signals.json
           retention-days: 30
       
+      - name: Generate PNG Report
+        run: |
+          DATE=$(TZ='America/New_York' date +%Y-%m-%d)
+          pip install pillow
+          python generate_sectorbot_image.py --json sectorbot_signals.json --output "SectorBot_Signal_${DATE}.png"
+          cp "SectorBot_Signal_${DATE}.png" sectorbot_daily.png
+          echo "✅ Generated: SectorBot_Signal_${DATE}.png"
+          ls -la *.png
+      
+      - name: Upload PNG Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sectorbot-png-${{ github.run_number }}
+          path: sectorbot_daily.png
+          retention-days: 30
+      
       - name: Send Email Report
         if: ${{ success() }}
         uses: dawidd6/action-send-mail@v3
@@ -130,7 +146,7 @@ jobs:
           server_port: 587
           username: ${{ secrets.GMAIL_USERNAME }}
           password: ${{ secrets.GMAIL_APP_PASSWORD }}
-          subject: "🤖 SectorBot - ${{ github.event.inputs.trading_mode || 'signals' }}"
+          subject: "🤖 SectorBot Signal - ${{ github.run_number }}"
           to: ${{ secrets.EMAIL_TO }}
           from: "SectorBot <${{ secrets.GMAIL_USERNAME }}>"
           body: |
@@ -143,6 +159,7 @@ jobs:
             Account: ${{ github.event.inputs.account_size || 'small' }}
             
             View: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          attachments: sectorbot_daily.png
 
   # Scheduled live trading (runs Mon/Wed/Fri)
   scheduled-trading:
