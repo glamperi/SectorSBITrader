@@ -3,6 +3,12 @@
 AdaptiveX2 SectorBot - Main Entry Point
 =======================================
 
+FIXES APPLIED (January 2026):
+- Rate limiting: Changed threads=True to threads=False
+- Chunked downloads: 50 tickers per batch with delays
+- Retry logic with exponential backoff on rate limit errors
+- Better error handling for failed tickers
+
 Usage:
     python main.py                        # Rotation mode signals (default)
     python main.py --mode parent_based    # Parent-based mode
@@ -20,15 +26,13 @@ Rotation Mode Rules:
     Entry: Parent PSAR bullish + Stock SBI >= 9 + Stock PSAR bullish + RSI > 50
     Exit: Parent PSAR bearish OR Stock PSAR bearish OR RSI < 40
     Rotate: If stock weak but parent strong, rotate to stronger stock in sector
-
-Performance (Backtested 2023-2025):
-    Daily: 85% | 3-Day: 84% | 5-Day: 85% (Rotation mode)
 """
 
 import os
 import sys
 import json
 import argparse
+import time
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -51,39 +55,130 @@ from sbi_calculator import (
 )
 
 
-def fetch_all_data(tickers: list, period: str = "6mo") -> dict:
-    """Fetch historical data for all tickers."""
+# =============================================================================
+# DATA FETCHING - FIXED WITH RATE LIMITING PROTECTION
+# =============================================================================
+
+def fetch_all_data(tickers: list, period: str = "6mo",
+                   chunk_size: int = 50, delay: float = 1.0,
+                   max_retries: int = 3) -> dict:
+    """
+    Fetch historical data for all tickers with rate limiting protection.
+    
+    FIXES APPLIED:
+    - threads=False prevents parallel request storm that triggers rate limits
+    - Chunked downloads (50 tickers per batch instead of 400+ at once)
+    - 1 second delay between chunks to avoid overwhelming Yahoo Finance
+    - Retry with exponential backoff on rate limit errors
+    - Fallback to individual ticker fetch on batch failure
+    
+    Args:
+        tickers: List of ticker symbols
+        period: Data period (e.g., "6mo", "1y")
+        chunk_size: Number of tickers per batch (default 50)
+        delay: Seconds to wait between batches (default 1.0)
+        max_retries: Max retries per chunk on failure (default 3)
+    
+    Returns:
+        Dict mapping ticker symbol to DataFrame with OHLCV data
+    """
     print(f"\n📥 Fetching data for {len(tickers)} tickers...")
+    print(f"   (chunked: {chunk_size} per batch, {delay}s delay)")
     
     data = {}
-    try:
-        batch_data = yf.download(
-            tickers=tickers,
-            period=period,
-            group_by='ticker',
-            auto_adjust=True,
-            threads=True,
-            progress=True,
-        )
-        
-        for ticker in tickers:
-            try:
-                if len(tickers) == 1:
-                    df = batch_data
-                else:
-                    df = batch_data[ticker].dropna()
-                
-                if len(df) >= 20:
-                    data[ticker] = df
-            except Exception:
-                pass
-                
-    except Exception as e:
-        print(f"⚠️ Batch download failed: {e}")
+    failed = []
     
-    print(f"✅ Loaded {len(data)} tickers")
+    # Split into chunks
+    chunks = [tickers[i:i + chunk_size] for i in range(0, len(tickers), chunk_size)]
+    total_chunks = len(chunks)
+    
+    for chunk_idx, chunk in enumerate(chunks):
+        chunk_num = chunk_idx + 1
+        print(f"   Batch {chunk_num}/{total_chunks}: {len(chunk)} tickers...", end=" ", flush=True)
+        
+        for attempt in range(max_retries):
+            try:
+                # KEY FIX: threads=False prevents rate limiting
+                # This makes requests sequential instead of parallel
+                batch_data = yf.download(
+                    tickers=chunk,
+                    period=period,
+                    group_by='ticker',
+                    auto_adjust=True,
+                    threads=False,  # FIXED: Sequential requests prevent rate limit
+                    progress=False,
+                )
+                
+                # Extract individual ticker data from batch result
+                batch_success = 0
+                for ticker in chunk:
+                    try:
+                        if len(chunk) == 1:
+                            # Single ticker - data is not nested
+                            df = batch_data
+                        else:
+                            # Multiple tickers - data is nested by ticker
+                            df = batch_data[ticker].dropna()
+                        
+                        if len(df) >= 20:  # Need minimum data for indicators
+                            data[ticker] = df
+                            batch_success += 1
+                    except Exception:
+                        failed.append(ticker)
+                
+                print(f"✓ ({batch_success}/{len(chunk)})")
+                break  # Success - exit retry loop
+                
+            except Exception as e:
+                error_str = str(e).lower()
+                
+                if 'rate' in error_str or '429' in error_str or 'too many' in error_str:
+                    # Rate limited - use exponential backoff
+                    wait_time = delay * (2 ** attempt)
+                    print(f"\n   ⚠️ Rate limited, waiting {wait_time:.1f}s (attempt {attempt+1}/{max_retries})...", end=" ", flush=True)
+                    time.sleep(wait_time)
+                else:
+                    # Other error - try one-by-one fallback
+                    if attempt == max_retries - 1:
+                        print(f"⚠️ batch failed, trying individually...")
+                        for ticker in chunk:
+                            try:
+                                single_data = yf.download(
+                                    tickers=ticker,
+                                    period=period,
+                                    auto_adjust=True,
+                                    threads=False,
+                                    progress=False,
+                                )
+                                if len(single_data) >= 20:
+                                    data[ticker] = single_data
+                                time.sleep(0.5)  # Small delay between individual requests
+                            except Exception:
+                                failed.append(ticker)
+                    break
+        
+        # Delay between chunks (except after last chunk)
+        if chunk_idx < total_chunks - 1:
+            time.sleep(delay)
+    
+    # Summary
+    success_rate = len(data) / len(tickers) * 100 if tickers else 0
+    print(f"\n✅ Loaded {len(data)}/{len(tickers)} tickers ({success_rate:.0f}%)")
+    
+    if failed:
+        # Dedupe and report failures
+        failed = list(set(failed))
+        if len(failed) <= 10:
+            print(f"⚠️ Failed ({len(failed)}): {', '.join(failed)}")
+        else:
+            print(f"⚠️ Failed ({len(failed)}): {', '.join(failed[:10])}... and {len(failed)-10} more")
+    
     return data
 
+
+# =============================================================================
+# SECTOR DIAGNOSIS
+# =============================================================================
 
 def diagnose_sector(sector: str, small_account: bool = True, strategy_mode: str = 'rotation'):
     """
@@ -123,7 +218,7 @@ def diagnose_sector(sector: str, small_account: bool = True, strategy_mode: str 
     
     # Fetch data for parent and children
     all_tickers = [sector] + children + ['SPY']
-    price_data = fetch_all_data(all_tickers, period="6mo")
+    price_data = fetch_all_data(all_tickers, period="6mo", chunk_size=30)
     
     # Check parent signal using sbi_calculator
     print(f"\n📊 PARENT SIGNAL: {sector}")
@@ -161,7 +256,7 @@ def diagnose_sector(sector: str, small_account: bool = True, strategy_mode: str 
     
     qualifying = []
     not_qualifying = []
-    detailed_sbi = []  # Store detailed SBI data for later
+    detailed_sbi = []
     
     for ticker in children:
         stock_data = price_data.get(ticker)
@@ -171,7 +266,7 @@ def diagnose_sector(sector: str, small_account: bool = True, strategy_mode: str 
             continue
         
         # Calculate indicators using sbi_calculator
-        sbi_result = get_full_sbi_data(stock_data, ticker=ticker)  # Pass ticker for category
+        sbi_result = get_full_sbi_data(stock_data, ticker=ticker)
         
         # RSI takes a Series, returns a Series - get last value
         rsi_series = calculate_rsi(stock_data['Close'])
@@ -413,7 +508,7 @@ def run_signals(small_account: bool = True, strategy_mode: str = 'rotation',
     if '^VIX' not in all_tickers:
         all_tickers.append('^VIX')
     
-    # Fetch data
+    # Fetch data with rate limiting protection
     price_data = fetch_all_data(all_tickers)
     
     # Initialize bot

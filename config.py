@@ -1,7 +1,16 @@
 """
-SectorBot Configuration
-=======================
+SectorBot Configuration - FIXED January 2026
+=============================================
 Parent-Child mappings for sector rotation strategy.
+
+FIXES APPLIED:
+- Removed PXD (Pioneer Natural - acquired by ExxonMobil Oct 2024)
+- Removed CAJ (Canon ADR - delisted)
+- Removed WNS (WNS Holdings - delisted)
+- Removed BBBY (Bed Bath & Beyond - bankrupt 2023)
+- Removed FFIE (Faraday Future - delisted)
+- Removed MULN (Mullen Automotive - delisted)
+- Added replacement meme stocks: SMCI, RDDT, RKLB
 
 To add more stocks to a sector:
 1. Find the parent (e.g., BTC-USD)
@@ -225,7 +234,7 @@ PARENT_CHILD_MAPPING = {
             'EOG',    # EOG Resources
             'SLB',    # Schlumberger
             'MPC',    # Marathon Petroleum
-            'PXD',    # Pioneer Natural
+            # 'PXD',  # REMOVED - Pioneer Natural acquired by ExxonMobil Oct 2024
             'PSX',    # Phillips 66
             'VLO',    # Valero
             'OXY',    # Occidental
@@ -585,7 +594,7 @@ PARENT_CHILD_MAPPING = {
             'MFG',    # Mizuho Financial
             'IX',     # ORIX
             'KB',     # KB Financial (Korean but related)
-            'CAJ',    # Canon
+            # 'CAJ',  # REMOVED - Canon ADR delisted
         ]
     },
     
@@ -601,13 +610,13 @@ PARENT_CHILD_MAPPING = {
             'RDY',    # Dr. Reddy's
             'TTM',    # Tata Motors
             'VEDL',   # Vedanta
-            'WNS',    # WNS Holdings
+            # 'WNS',  # REMOVED - WNS Holdings delisted
             'AZRE',   # Azure Power
         ]
     },
     
     # =========================================================================
-    # MEME / HIGH VOLATILITY
+    # MEME / HIGH VOLATILITY - FIXED
     # =========================================================================
     'MEME': {
         'name': 'Meme Stocks',
@@ -615,7 +624,7 @@ PARENT_CHILD_MAPPING = {
         'stocks': [
             'GME',    # GameStop
             'AMC',    # AMC Entertainment
-            'BBBY',   # Bed Bath & Beyond
+            # 'BBBY', # REMOVED - Bed Bath & Beyond bankrupt/delisted 2023
             'BB',     # BlackBerry
             'PLTR',   # Palantir
             'SOFI',   # SoFi
@@ -626,8 +635,12 @@ PARENT_CHILD_MAPPING = {
             'NIO',    # NIO
             'LCID',   # Lucid Motors
             'RIVN',   # Rivian
-            'FFIE',   # Faraday Future
-            'MULN',   # Mullen Automotive
+            # 'FFIE', # REMOVED - Faraday Future delisted
+            # 'MULN', # REMOVED - Mullen Automotive delisted
+            # NEW ADDITIONS (January 2026):
+            'SMCI',   # Super Micro Computer - high volatility AI play
+            'RDDT',   # Reddit - meme stock favorite
+            'RKLB',   # Rocket Lab - retail favorite space stock
         ]
     },
 }
@@ -713,7 +726,7 @@ DEFAULT_CONFIG = StrategyConfig()
 # =============================================================================
 
 if __name__ == "__main__":
-    print("SectorBot Configuration")
+    print("SectorBot Configuration - FIXED January 2026")
     print("=" * 60)
     
     print(f"\nTotal parents: {len(PARENT_CHILD_MAPPING)}")
@@ -723,6 +736,14 @@ if __name__ == "__main__":
     for cat in get_all_categories():
         parents = get_parents_by_category(cat)
         print(f"  {cat}: {len(parents)} parents")
+    
+    print("\nDelisted tickers removed:")
+    print("  - PXD (acquired by XOM)")
+    print("  - CAJ (Canon ADR delisted)")
+    print("  - WNS (delisted)")
+    print("  - BBBY (bankrupt)")
+    print("  - FFIE (delisted)")
+    print("  - MULN (delisted)")
     
     print("\nBTC-USD children:")
     for child in get_children('BTC-USD'):
