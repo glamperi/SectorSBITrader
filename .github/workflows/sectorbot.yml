@@ -128,7 +128,6 @@ jobs:
         with:
           server_address: smtp.gmail.com
           server_port: 587
-          secure: true
           username: ${{ secrets.GMAIL_USERNAME }}
           password: ${{ secrets.GMAIL_APP_PASSWORD }}
           subject: "🤖 SectorBot - ${{ github.event.inputs.trading_mode || 'signals' }}"
