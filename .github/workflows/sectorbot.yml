@@ -126,13 +126,14 @@ jobs:
         uses: dawidd6/action-send-mail@v3
         continue-on-error: true
         with:
-          server_address: ${{ secrets.SMTP_SERVER }}
-          server_port: ${{ secrets.SMTP_PORT }}
-          username: ${{ secrets.SMTP_USERNAME }}
-          password: ${{ secrets.SMTP_PASSWORD }}
+          server_address: smtp.gmail.com
+          server_port: 587
+          secure: true
+          username: ${{ secrets.GMAIL_USERNAME }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
           subject: "🤖 SectorBot - ${{ github.event.inputs.trading_mode || 'signals' }}"
           to: ${{ secrets.EMAIL_TO }}
-          from: SectorBot <${{ secrets.SMTP_USERNAME }}>
+          from: "SectorBot <${{ secrets.GMAIL_USERNAME }}>"
           body: |
             SectorBot Report
             =================
